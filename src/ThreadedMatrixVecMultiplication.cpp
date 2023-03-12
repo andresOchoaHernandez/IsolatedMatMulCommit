@@ -1,11 +1,23 @@
 #include <pthread.h>
+#include <iostream>
 
-#include "matrixVecMultiplication.hpp"
+#include "ThreadedMatrixVecMultiplication.hpp"
 
-#define nTHREADS 12
-#define nIC  1
-#define nEC  1
-#define nISO 2
+#ifndef nTHREADS
+    #define nTHREADS 12
+#endif
+
+#ifndef nIC
+    #define nIC 1
+#endif
+
+#ifndef nEC
+    #define nEC 1
+#endif
+
+#ifndef nISO
+    #define nISO 2
+#endif
 
 /* global variables */
 int         nF, n, nE, nV, nS, ndirs;
@@ -19,8 +31,6 @@ float       *ICl;
 float       *wmrSFP0, *wmrSFP1, *wmrSFP2, *wmrSFP3, *wmrSFP4, *wmrSFP5, *wmrSFP6, *wmrSFP7, *wmrSFP8, *wmrSFP9, *wmrSFP10, *wmrSFP11, *wmrSFP12, *wmrSFP13, *wmrSFP14, *wmrSFP15, *wmrSFP16, *wmrSFP17, *wmrSFP18, *wmrSFP19;
 float       *wmhSFP0, *wmhSFP1, *wmhSFP2, *wmhSFP3, *wmhSFP4, *wmhSFP5, *wmhSFP6, *wmhSFP7, *wmhSFP8, *wmhSFP9, *wmhSFP10, *wmhSFP11, *wmhSFP12, *wmhSFP13, *wmhSFP14, *wmhSFP15, *wmhSFP16, *wmhSFP17, *wmhSFP18, *wmhSFP19;
 float       *isoSFP0, *isoSFP1, *isoSFP2, *isoSFP3, *isoSFP4, *isoSFP5, *isoSFP6, *isoSFP7, *isoSFP8, *isoSFP9, *isoSFP10, *isoSFP11, *isoSFP12, *isoSFP13, *isoSFP14, *isoSFP15, *isoSFP16, *isoSFP17, *isoSFP18, *isoSFP19;
-
-
 
 // ====================================================
 // Compute a sub-block of the A*x MAtRIX-VECTOR product

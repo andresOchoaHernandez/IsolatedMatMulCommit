@@ -14,10 +14,9 @@ target_include_directories(
 
 target_sources(
     comparison
-    PUBLIC  ${PROJECT_SOURCE_DIR}/include/matrixVecMultiplication.hpp
+    PUBLIC  ${PROJECT_SOURCE_DIR}/include/CommitOriginalDataStructure.hpp
+    PUBLIC  ${PROJECT_SOURCE_DIR}/include/ThreadedMatrixVecMultiplication.hpp
 
     PRIVATE ${PROJECT_SOURCE_DIR}/src/CommitOriginalDataStructure.cpp
-    PRIVATE ${PROJECT_SOURCE_DIR}/src/threadedMatrixVecMultiplication.cpp
-    PRIVATE ${PROJECT_SOURCE_DIR}/src/sequentialMatrixVecMultiplication.cpp
-    PRIVATE ${PROJECT_SOURCE_DIR}/src/utils.cpp
+    PRIVATE ${PROJECT_SOURCE_DIR}/src/ThreadedMatrixVecMultiplication.cpp
 )
