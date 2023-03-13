@@ -1,5 +1,8 @@
 project(SparseDataStructures)
 
+set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
+set(CMAKE_CUDA_ARCHITECTURES 75)
+
 cmake_minimum_required(VERSION 3.8.2)
 
 SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -Wpedantic")
