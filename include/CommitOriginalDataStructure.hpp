@@ -6,6 +6,8 @@
 #include <iostream>
 #include <vector>
 
+#include "LinearAlgebra.hpp"
+
 class CommitOriginalDataStructure{
 
     int _nF;
@@ -59,4 +61,10 @@ class CommitOriginalDataStructure{
 
         void sequentialMatrixMultiplication();
         void threadedMatrixMultiplication();
+
+        LinearAlgebra::CSCMatrix transformToCSC();
+        LinearAlgebra::CSRMatrix transformToCSR();
+
+        void CSRSequentialMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix);
+        void CSRGpuMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix);
 };
