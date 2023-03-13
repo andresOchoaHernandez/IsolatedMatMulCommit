@@ -166,11 +166,11 @@ namespace LinearAlgebra
         cusparseCreateDnVec(&v1Desc,v1.len(),v1_device,CUDA_R_32F);
         cusparseCreateDnVec(&rvDesc,rv.len(),rv_device,CUDA_R_32F);
 
-        cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,&alpha, csrMatrixDesc, v1Desc, &beta, rvDesc, CUDA_R_32F,CUSPARSE_CSRMV_ALG2, &sizeBuffer);
+        cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,&alpha, csrMatrixDesc, v1Desc, &beta, rvDesc, CUDA_R_32F,CUSPARSE_SPMV_CSR_ALG2, &sizeBuffer);
         cudaMalloc(&buffer, sizeBuffer);
 
         cudaEventRecord(start);
-        cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,&alpha,csrMatrixDesc,v1Desc, &beta, rvDesc, CUDA_R_32F,CUSPARSE_CSRMV_ALG2,buffer); 
+        cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,&alpha,csrMatrixDesc,v1Desc, &beta, rvDesc, CUDA_R_32F,CUSPARSE_SPMV_CSR_ALG2,buffer); 
         cudaEventRecord(stop);
 
         cusparseDestroySpMat(csrMatrixDesc);
