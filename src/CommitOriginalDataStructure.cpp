@@ -656,15 +656,27 @@ void CommitOriginalDataStructure::CSRSequentialMatrixMultiplication(const Linear
 {
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
-    // initialize input and output vectors
-    
-    // multiplication here
+    LinearAlgebra::Vector inputVector{input.size()};
+
+    for(unsigned i = 0; i < inputVector.len(); i++)
+    {
+        inputVector[i] = input[i];
+    }
+
+    LinearAlgebra::Vector outputVector = csrmatrix.matrixVectorMult(inputVector);
 
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
-    printResult("Sequential CSR matrix multiplication", /*verifyCorrectness<float>(output,outputVector)*/false,time);
+    std::vector<float> _outputVector(outputVector.len());
+
+    for (size_t i = 0; i < _outputVector.size();i++)
+    {
+        _outputVector[i] = outputVector[i];
+    }
+
+    printResult("Sequential CSR matrix multiplication",verifyCorrectness<float>(output,_outputVector),time);
 }
 
 void CommitOriginalDataStructure::CSRGpuMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix)
