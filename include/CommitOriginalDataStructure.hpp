@@ -65,6 +65,6 @@ class CommitOriginalDataStructure{
         LinearAlgebra::CSCMatrix transformToCSC();
         LinearAlgebra::CSRMatrix transformToCSR();
 
-        void CSRSequentialMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix);
-        void CSRGpuMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix);
+        void CSRSequentialMatrixMultiplication(const LinearAlgebra::CSRMatrix& csrmatrix);
+        void CSRGpuMatrixMultiplication(const LinearAlgebra::CSRMatrix& csrmatrix);
 };

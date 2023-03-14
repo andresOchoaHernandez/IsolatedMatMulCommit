@@ -185,7 +185,9 @@ namespace LinearAlgebra
         cudaEventSynchronize(stop);
         float milliseconds = 0;
         cudaEventElapsedTime(&milliseconds, start, stop);
-        std::cout << "CuSparse CSR SpMV took : " << milliseconds << " ms" << std::endl;
+        std::cout << "------------- [CuSparse] CSR SpMV multiplication -------------" << std::endl;
+        std::cout << "| time => " << milliseconds << " ms" << std::endl;
+        std::cout << "--------------------------------------------------------------" << std::endl;
 
         cudaFree(rows_device);
         cudaFree(cols_device);

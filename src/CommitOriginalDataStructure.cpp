@@ -119,7 +119,7 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath,std::string
 template<typename T>
 bool areNearlyEqual(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.00001;
+    const T relative_error = 0.000009;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
@@ -422,6 +422,9 @@ LinearAlgebra::CSCMatrix CommitOriginalDataStructure::transformToCSC()
 
 LinearAlgebra::CSRMatrix CommitOriginalDataStructure::transformToCSR()
 {
+
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
      /* IC */
     struct Segment
     {
@@ -649,10 +652,18 @@ LinearAlgebra::CSRMatrix CommitOriginalDataStructure::transformToCSR()
         rowsVec[rowsVecIndex++] = nonZeroElementIndex;
     }
 
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+    long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+    std::cout << "------------------- Trasformation to CSR format -------------------" << std::endl;
+    std::cout << "| time => " << time << " ms" << std::endl;
+    std::cout << "-------------------------------------------------------------------" << std::endl;
+
     return result;
 }
 
-void CommitOriginalDataStructure::CSRSequentialMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix)
+void CommitOriginalDataStructure::CSRSequentialMatrixMultiplication(const LinearAlgebra::CSRMatrix& csrmatrix)
 {
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -679,7 +690,7 @@ void CommitOriginalDataStructure::CSRSequentialMatrixMultiplication(const Linear
     printResult("Sequential CSR matrix multiplication",verifyCorrectness<float>(output,_outputVector),time);
 }
 
-void CommitOriginalDataStructure::CSRGpuMatrixMultiplication(const LinearAlgebra::CSRMatrix csrmatrix)
+void CommitOriginalDataStructure::CSRGpuMatrixMultiplication(const LinearAlgebra::CSRMatrix& csrmatrix)
 {
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
