@@ -2,6 +2,7 @@
 #include <thread>
 
 #include "CommitOriginalDataStructure.hpp"
+#include "LinearAlgebra.hpp"
 
 int main()
 {
@@ -26,6 +27,11 @@ int main()
 
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
+
+    LinearAlgebra::CSRMatrix csrmatrix = originalDataStructure.transformToCSR();
+
+    originalDataStructure.CSRSequentialMatrixMultiplication(csrmatrix);
+    originalDataStructure.CSRGpuMatrixMultiplication(csrmatrix);
 
     return 0;
 }
