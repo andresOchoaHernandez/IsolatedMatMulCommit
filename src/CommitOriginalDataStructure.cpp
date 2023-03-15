@@ -114,6 +114,16 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath,std::string
     inputPath = inputPath.substr(0,lenInputString);
 
     loadArray<uint32_t>(inputPath.append("isothreads.csv"),isoThreads);
+
+    /*============================  DEBUG ============================*/
+    float totalOccMem = (wmrSFP.size()*sizeof(float))/10e6 + (wmhSFP.size()*sizeof(float))/10e6 + (isoSFP.size()*sizeof(float))/10e6;
+    std::cout << "-------------------- LOOKUPTABLE SIZE -----------------------" << std::endl;
+    std::cout << "| [wmrSFP] size => "<< wmrSFP.size() << " occupied memory => " << (wmrSFP.size()*sizeof(float))/10e6 << " MB" << std::endl;
+    std::cout << "| [wmhSFP] size => "<< wmhSFP.size() << " occupied memory => " << (wmhSFP.size()*sizeof(float))/10e6 << " MB" << std::endl;
+    std::cout << "| [isoSFP] size => "<< isoSFP.size() << " occupied memory => " << (isoSFP.size()*sizeof(float))/10e6 << " MB" << std::endl;
+    std::cout << "| total         => " << totalOccMem << " MB" << std::endl;
+    std::cout << "-------------------------------------------------------------" << std::endl;
+    /*================================================================*/
 }
 
 template<typename T>
@@ -179,6 +189,10 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
     float accumulator;
     int xIndex;
 
+    /*== DEBUG ==*/
+    /**/ unsigned WMRSFPACCESS = 0;
+    /*==========*/
+
     /* IC */
     for(int segment = 0 ; segment < _n ; segment++)
     {
@@ -188,10 +202,17 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
             for(int radii = 0 ; radii <  _nR; radii++ )
             {
                 accumulator += input[icf[segment] + radii] * wmrSFP[ (radii*_ndirs*_nS) + (ico[segment] * _nS + sample)];
+                /*== DEBUG ==*/
+                /**/ WMRSFPACCESS += 1;
+                /*==========*/
             }
             outputVector[icv[segment]*_nS + sample] += icl[segment]* accumulator;
         }
     }
+
+    /*== DEBUG ==*/
+    /**/ unsigned WMHSFPACCESS = 0;
+    /*==========*/
 
     /* EC */
     xIndex = _nR * _nF;
@@ -203,11 +224,18 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
             for(int ec = 0; ec < _nT ; ec++)
             {
                 accumulator += input[xIndex + ec * _nE] * wmhSFP[(ec*_ndirs*_nS) + (eco[segment] * _nS + sample)];
+                /*== DEBUG ==*/
+                /**/ WMHSFPACCESS += 1;
+                /*==========*/
             }
             outputVector[ecv[segment]*_nS + sample] += accumulator;
         }
         xIndex++;
     }
+
+    /*== DEBUG ==*/
+    /**/ unsigned ISOSFPACCESS = 0;
+    /*==========*/
 
     /* ISO */
     xIndex = _nR*_nF + _nT*_nE;
@@ -219,6 +247,9 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
             for(int iso = 0; iso < _nI ; iso++)
             {
                 accumulator += input[xIndex + iso*_nV] * isoSFP[iso*_nS + sample];
+                /*== DEBUG ==*/
+                /**/ ISOSFPACCESS += 1;
+                /*==========*/
             }
             outputVector[isov[i]*_nS + sample] += accumulator;
         }
@@ -226,6 +257,16 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
     }
 
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+    /*============================  DEBUG ============================*/
+    unsigned totalAcceses = WMRSFPACCESS + WMHSFPACCESS + ISOSFPACCESS;
+    std::cout << "-------------------- LOOKUPTABLE ACCESSES -----------------------" << std::endl;
+    std::cout << "| [wmrSFP] actual => "<< WMRSFPACCESS << " expected => " << _n*_nR*_nS <<" " << std::endl;
+    std::cout << "| [wmhSFP] actual => "<< WMHSFPACCESS << " expected => " << _nE*_nT*_nS<<" " << std::endl;
+    std::cout << "| [isoSFP] actual => "<< ISOSFPACCESS << " expected => " << _nV*_nI*_nS<<" " << std::endl;
+    std::cout << "| total           => "<< totalAcceses << std::endl;
+    std::cout << "-------------------------------------------------------------" << std::endl;
+    /*================================================================*/
 
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
