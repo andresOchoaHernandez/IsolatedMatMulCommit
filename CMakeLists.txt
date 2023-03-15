@@ -19,10 +19,4 @@ target_sources(
 
     PRIVATE ${PROJECT_SOURCE_DIR}/src/CommitOriginalDataStructure.cpp
     PRIVATE ${PROJECT_SOURCE_DIR}/src/ThreadedMatrixVecMultiplication.cpp
-
-    PUBLIC ${PROJECT_SOURCE_DIR}/lib/SparseDataStructures/include/LinearAlgebra.hpp
 )
-
-add_subdirectory(${PROJECT_SOURCE_DIR}/lib/SparseDataStructures)
-
-target_link_libraries(comparison LinearAlgebra)
