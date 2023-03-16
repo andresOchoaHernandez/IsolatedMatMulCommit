@@ -51,7 +51,12 @@ class CommitOriginalDataStructure{
     int _threads;
     std::vector<uint32_t> icThreads;
     std::vector<uint32_t> ecThreads;
-    std::vector<uint32_t> isoThreads; 
+    std::vector<uint32_t> isoThreads;
+
+    /* ===== HELPER VECTORS ====*/
+    std::vector<int> icIndexes;
+    std::vector<int> ecIndexes;
+    std::vector<int> isoIndexes;
 
     public:
         CommitOriginalDataStructure(int nF, int n, int nE, int nV, int nS, int ndirs,int nI,int nR, int nT,int threads);
@@ -59,4 +64,8 @@ class CommitOriginalDataStructure{
 
         void sequentialMatrixMultiplication();
         void threadedMatrixMultiplication();
+
+        void orderByVoxel();
+
+        void gpuMatrixMultiplication();
 };

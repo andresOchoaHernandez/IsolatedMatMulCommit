@@ -28,5 +28,7 @@ int main()
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
 
+    originalDataStructure.orderByVoxel();
+
     return 0;
 }

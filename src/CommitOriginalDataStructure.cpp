@@ -33,7 +33,10 @@ icThreads(_threads + 1),
 ecThreads(_threads + 1),
 isoThreads(_threads + 1),
 input(N),
-output(M)
+output(M),
+icIndexes(_nV,0),
+ecIndexes(_nV,0),
+isoIndexes(_nV,0)
 {}
 
 template<typename T>
@@ -294,4 +297,132 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
     printResult("Threaded matrix multiplication", verifyCorrectness<float>(output,outputVector),time);
+}
+
+/*==================== TESTING VOXEL DIVISION =====================*/
+bool testVoxelDivision(const std::vector<uint32_t>& voxelIndexes,const std::vector<int>& helperIndexes)
+{
+    int initialIndex = 0;
+    for(int helperIndex : helperIndexes)
+    {
+        uint32_t voxel = voxelIndexes[initialIndex];
+        for(int index = initialIndex; index < helperIndex; index++ )
+        {
+            if(voxel != voxelIndexes[index]){
+                return false;
+            }
+        }
+        initialIndex = helperIndex;
+    }
+
+    return true;
+}
+/*=================================================================*/
+
+void CommitOriginalDataStructure::orderByVoxel()
+{
+    struct IcSection
+    {
+        uint32_t fiber;
+        uint32_t voxel;
+        uint16_t orientation;
+        float    length;
+
+        bool operator<(const IcSection& other)
+        {
+            return voxel < other.voxel;
+        }
+    };
+
+    std::vector<IcSection> icSegments;
+
+    for(int seg = 0; seg < _n; seg++)
+    {
+        icSegments.push_back({.fiber=icf[seg],.voxel=icv[seg],.orientation=ico[seg],.length=icl[seg]});
+    }
+
+    std::sort(icSegments.begin(),icSegments.end());
+
+    for(int seg = 0; seg < _n; seg++)
+    {
+        icf[seg] = icSegments[seg].fiber;
+        icv[seg] = icSegments[seg].voxel;
+        ico[seg] = icSegments[seg].orientation;
+        icl[seg] = icSegments[seg].length;
+    }
+
+    uint32_t voxel = icv[0];
+    for(int segment = 0; segment < _n; segment++)
+    {
+        if(icv[segment] != voxel)
+        {
+            icIndexes[voxel] = segment;
+            voxel = icv[segment];
+        }
+    }
+
+    icIndexes[_nV-1] =_n-1;
+
+    if(!testVoxelDivision(icv,icIndexes)){std::cout << "Error in voxel division for ic section" << std::endl;}
+
+    struct EcSection
+    {
+        uint32_t voxel;
+        uint16_t orientation;
+
+        bool operator<(const EcSection& other)
+        {
+            return voxel < other.voxel;
+        }
+    };
+
+    std::vector<EcSection> ecSegments;
+
+    for(int seg = 0; seg < _nE; seg++)
+    {
+        ecSegments.push_back({.voxel=ecv[seg],.orientation=eco[seg]});
+    }
+
+    std::sort(ecSegments.begin(),ecSegments.end());
+
+    for(int seg = 0; seg < _nE; seg++)
+    {
+        ecv[seg] = ecSegments[seg].voxel;
+        eco[seg] = ecSegments[seg].orientation;
+    }
+
+    voxel = ecv[0];
+    for(int segment = 0; segment < _nE; segment++)
+    {
+        if(ecv[segment] != voxel)
+        {
+            ecIndexes[voxel] = segment;
+            voxel = ecv[segment];
+        }
+    }
+
+    ecIndexes[_nV-1] =_nE-1;
+
+    if(!testVoxelDivision(ecv,ecIndexes)){std::cout << "Error in voxel division for ec section" << std::endl;}
+
+    std::sort(isov.begin(),isov.end());
+
+    voxel = isov[0];
+    for(int segment = 0; segment < _nV; segment++)
+    {
+        if(isov[segment] != voxel)
+        {
+            isoIndexes[voxel] = segment;
+            voxel = isov[segment];
+        }
+    }
+
+    isoIndexes[_nV-1] =_nV-1;
+
+    if(!testVoxelDivision(isov,isoIndexes)){std::cout << "Error in voxel division for iso section" << std::endl;}
+}
+
+void CommitOriginalDataStructure::gpuMatrixMultiplication()
+{
+
 }
