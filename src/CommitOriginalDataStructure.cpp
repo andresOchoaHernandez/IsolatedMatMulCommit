@@ -421,8 +421,3 @@ void CommitOriginalDataStructure::orderByVoxel()
 
     if(!testVoxelDivision(isov,isoIndexes)){std::cout << "Error in voxel division for iso section" << std::endl;}
 }
-
-void CommitOriginalDataStructure::gpuMatrixMultiplication()
-{
-
-}

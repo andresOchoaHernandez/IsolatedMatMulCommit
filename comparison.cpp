@@ -30,5 +30,7 @@ int main()
 
     originalDataStructure.orderByVoxel();
 
+    originalDataStructure.gpuMatrixMultiplication();
+
     return 0;
 }
