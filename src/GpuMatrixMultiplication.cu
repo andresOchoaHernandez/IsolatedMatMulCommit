@@ -36,7 +36,7 @@ bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtai
         if(!areNearlyEqual<T>(correct[i],obtained[i]))
         {
             std::cout << std::fixed << std::setprecision(6) <<
-                      "Error found : correct[" << i << "] = " << correct[i] << ", obatined[" << i << "] = " << obtained[i] << std::endl; 
+                      "Error found : correct[" << i << "] = " << correct[i] << ", obtained[" << i << "] = " << obtained[i] << std::endl; 
             return false;
         }
     }
@@ -69,16 +69,47 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 }
 
 __global__ void commitMatrixMultiplication(
-    const uint32_t* icfDevice, const uint32_t* icvDevice, const uint16_t* icoDevice, const float* iclDevice,
-    const uint32_t* ecvDevice, const uint16_t* ecoDevice,
-    const uint32_t* isovDevice,
-    const float* wmrSFPDevice, const float* wmhSFPDevice, const float* isoSFPDevice,
+    const uint32_t* icfDevice, const uint32_t* icvDevice, const uint16_t* icoDevice, const float* iclDevice, int nR,
+    const uint32_t* ecvDevice, const uint16_t* ecoDevice, int nT,
+    const uint32_t* isovDevice, int nI,
+    const float* wmrSFPDevice, const float* wmhSFPDevice, const float* isoSFPDevice,int ndirs,
     const int* icIndexesDevice, const int* ecIndexesDevice, const int* isoIndexesDevice,
     float* xDevice,
     float* yDevice
 )
 {
-    //TODO:
+    const int voxel       = blockIdx.x * blockDim.x;
+    const int voxelOffset = voxel + threadIdx.x;
+
+    /* IC */
+    __shared__ float acc[100];
+    acc[ threadIdx.x ] = 0.0f;
+
+    for(int icsegment = voxel==0?0:icIndexesDevice[voxel-1]; icsegment < icIndexesDevice[voxel]; icsegment++)
+    {
+        for(int radii = 0; radii < nR; radii++)
+        {
+            acc[threadIdx.x] += 
+                iclDevice[icsegment] * 
+                wmrSFPDevice[(radii*ndirs * blockDim.x) + (icoDevice[icsegment]* blockDim.x + threadIdx.x)] * 
+                xDevice[icfDevice[icsegment] + radii];
+        }
+    }
+    yDevice[voxelOffset] += acc[threadIdx.x]; // TODO: IDEA, COMPUTAZIONI NEL CICLO IN SHARED MEMORY, 1 SOLA SCRITTURA IN GLOBAL DOPO
+    /* EC */
+    for(int ecsegment = voxel==0?0:ecIndexesDevice[voxel-1]; ecsegment < ecIndexesDevice[voxel]; ecsegment++)
+    {
+        for(int tortuosity = 0; tortuosity < nT; tortuosity++)
+        {
+        }
+    }
+    /* ISO */ 
+    for(int isosegment = voxel==0?0:isoIndexesDevice[voxel-1]; isosegment < isoIndexesDevice[voxel]; isosegment++)
+    {
+        for(int iso = 0; iso < nI; iso++)
+        {
+        }
+    }
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
@@ -159,7 +190,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = M;
+    const int blocks = _nV;
     const int threadsPerBlock = _nS;
 
     dim3 dimGrid(blocks,1,1);
@@ -167,10 +198,10 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     cudaEventRecord(kernelStart);
     commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
-        icfDevice,icvDevice,icoDevice,iclDevice,
-        ecvDevice,ecoDevice,
-        isovDevice,
-        wmrSFPDevice,wmhSFPDevice,isoSFPDevice,
+        icfDevice,icvDevice,icoDevice,iclDevice,_nR,
+        ecvDevice,ecoDevice,_nT,
+        isovDevice,_nI,
+        wmrSFPDevice,wmhSFPDevice,isoSFPDevice,_ndirs,
         icIndexesDevice,ecIndexesDevice,isoIndexesDevice,
         xDevice,
         yDevice

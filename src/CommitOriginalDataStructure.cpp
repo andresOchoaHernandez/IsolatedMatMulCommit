@@ -163,7 +163,7 @@ bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtai
         if(!areNearlyEqual<T>(correct[i],obtained[i]))
         {
             std::cout << std::fixed << std::setprecision(6) <<
-                      "Error found : correct[" << i << "] = " << correct[i] << ", obatined[" << i << "] = " << obtained[i] << std::endl; 
+                      "Error found : correct[" << i << "] = " << correct[i] << ", obtained[" << i << "] = " << obtained[i] << std::endl; 
             return false;
         }
     }
