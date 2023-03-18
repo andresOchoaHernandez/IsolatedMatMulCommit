@@ -69,11 +69,12 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 }
 
 __global__ void commitMatrixMultiplication(
-    const uint32_t* icfDevice, const uint32_t* icvDevice, const uint16_t* icoDevice, const float* iclDevice, int nR,
-    const uint32_t* ecvDevice, const uint16_t* ecoDevice, int nT,
-    const uint32_t* isovDevice, int nI,
-    const float* wmrSFPDevice, const float* wmhSFPDevice, const float* isoSFPDevice,int ndirs,
-    const int* icIndexesDevice, const int* ecIndexesDevice, const int* isoIndexesDevice,
+    int nV,
+    uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
+    uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
+    uint32_t* isovDevice, int nI,
+    float* wmrSFPDevice, float* wmhSFPDevice, float* isoSFPDevice,int ndirs,
+    int* icIndexesDevice, int* ecIndexesDevice, int* isoIndexesDevice,
     float* xDevice,
     float* yDevice
 )
@@ -81,35 +82,69 @@ __global__ void commitMatrixMultiplication(
     const int voxel       = blockIdx.x * blockDim.x;
     const int voxelOffset = voxel + threadIdx.x;
 
-    /* IC */
-    __shared__ float acc[100];
-    acc[ threadIdx.x ] = 0.0f;
+    /* INITIALIZE THE VOXEL ACCUMULATOR */
+    __shared__ float voxelAccumulator[100];
+    voxelAccumulator[threadIdx.x] = 0.0f;
 
-    for(int icsegment = voxel==0?0:icIndexesDevice[voxel-1]; icsegment < icIndexesDevice[voxel]; icsegment++)
+    //TODO: scorrere su tutti i voxel
+
+    /* IC */
+    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
+    const int endIcSegment   = icIndexesDevice[voxel]; 
+
+    for (int radii = 0; radii < nR; radii++)
     {
-        for(int radii = 0; radii < nR; radii++)
+        int lookupTableOffset = radii*ndirs*blockDim.x;
+
+        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
         {
-            acc[threadIdx.x] += 
-                iclDevice[icsegment] * 
-                wmrSFPDevice[(radii*ndirs * blockDim.x) + (icoDevice[icsegment]* blockDim.x + threadIdx.x)] * 
-                xDevice[icfDevice[icsegment] + radii];
+            voxelAccumulator[threadIdx.x] += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * blockDim.x + threadIdx.x]*iclDevice[icsegment];
         }
     }
-    yDevice[voxelOffset] += acc[threadIdx.x]; // TODO: IDEA, COMPUTAZIONI NEL CICLO IN SHARED MEMORY, 1 SOLA SCRITTURA IN GLOBAL DOPO
+
     /* EC */
-    for(int ecsegment = voxel==0?0:ecIndexesDevice[voxel-1]; ecsegment < ecIndexesDevice[voxel]; ecsegment++)
+    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
+    const int endEcSegment   = ecIndexesDevice[voxel];
+
+    int xIndex = nR*nF;
+
+    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
     {
-        for(int tortuosity = 0; tortuosity < nT; tortuosity++)
+        int lookupTableOffset = tortuosity*ndirs*blockDim.x;
+
+        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
         {
+            voxelAccumulator[threadIdx.x] += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * blockDim.x + threadIdx.x];
+            if(threadIdx.x == 0)
+            {
+                xIndex++;
+            }
+            __syncthreads();
         }
     }
-    /* ISO */ 
-    for(int isosegment = voxel==0?0:isoIndexesDevice[voxel-1]; isosegment < isoIndexesDevice[voxel]; isosegment++)
+
+    /* ISO */
+    const int startIsoSegment = (voxel==0)?0:isoIndexesDevice[voxel-1];
+    const int endIsoSegment   = isoIndexesDevice[voxel];
+
+    xIndex = nR*nF + nT*nE;
+
+    for (int iso = 0; iso < nI; iso++)
     {
-        for(int iso = 0; iso < nI; iso++)
+        int lookupTableOffset = iso*blockDim.x;
+
+        for(int isosegment = startIsoSegment; isosegment < endIsoSegment; isosegment++)
         {
+            voxelAccumulator[threadIdx.x] += xDevice[xIndex + iso*nV]*isoSFPDevice[lookupTableOffset + threadIdx.x];
+            if(threadIdx.x == 0)
+            {
+                xIndex++;
+            }
+            __syncthreads();
         }
     }
+
+    yDevice[voxelOffset] = voxelAccumulator[threadIdx.x];
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
@@ -190,7 +225,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = _nV;
+    const int blocks = 1; //TODO: scorrere su tutti i voxel
     const int threadsPerBlock = _nS;
 
     dim3 dimGrid(blocks,1,1);
@@ -198,8 +233,9 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     cudaEventRecord(kernelStart);
     commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
-        icfDevice,icvDevice,icoDevice,iclDevice,_nR,
-        ecvDevice,ecoDevice,_nT,
+        _nV,
+        icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
+        ecvDevice,ecoDevice,_nT,_nE,
         isovDevice,_nI,
         wmrSFPDevice,wmhSFPDevice,isoSFPDevice,_ndirs,
         icIndexesDevice,ecIndexesDevice,isoIndexesDevice,
