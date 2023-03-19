@@ -118,15 +118,9 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath,std::string
 
     loadArray<uint32_t>(inputPath.append("isothreads.csv"),isoThreads);
 
-    /*============================  DEBUG ============================*/
-    float totalOccMem = (wmrSFP.size()*sizeof(float))/10e6 + (wmhSFP.size()*sizeof(float))/10e6 + (isoSFP.size()*sizeof(float))/10e6;
-    std::cout << "-------------------- LOOKUPTABLE SIZE -----------------------" << std::endl;
-    std::cout << "| [wmrSFP] size => "<< wmrSFP.size() << " occupied memory => " << (wmrSFP.size()*sizeof(float))/10e6 << " MB" << std::endl;
-    std::cout << "| [wmhSFP] size => "<< wmhSFP.size() << " occupied memory => " << (wmhSFP.size()*sizeof(float))/10e6 << " MB" << std::endl;
-    std::cout << "| [isoSFP] size => "<< isoSFP.size() << " occupied memory => " << (isoSFP.size()*sizeof(float))/10e6 << " MB" << std::endl;
-    std::cout << "| total         => " << totalOccMem << " MB" << std::endl;
-    std::cout << "-------------------------------------------------------------" << std::endl;
-    /*================================================================*/
+    for (uint32_t ie : isov){
+        std::cout << ie << std::endl;
+    }
 }
 
 template<typename T>
@@ -260,16 +254,6 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
     }
 
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-    /*============================  DEBUG ============================*/
-    unsigned totalAcceses = WMRSFPACCESS + WMHSFPACCESS + ISOSFPACCESS;
-    std::cout << "-------------------- LOOKUPTABLE ACCESSES -----------------------" << std::endl;
-    std::cout << "| [wmrSFP] actual => "<< WMRSFPACCESS << " expected => " << _n*_nR*_nS <<" " << std::endl;
-    std::cout << "| [wmhSFP] actual => "<< WMHSFPACCESS << " expected => " << _nE*_nT*_nS<<" " << std::endl;
-    std::cout << "| [isoSFP] actual => "<< ISOSFPACCESS << " expected => " << _nV*_nI*_nS<<" " << std::endl;
-    std::cout << "| total           => "<< totalAcceses << std::endl;
-    std::cout << "-------------------------------------------------------------" << std::endl;
-    /*================================================================*/
 
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
@@ -405,7 +389,7 @@ void CommitOriginalDataStructure::orderByVoxel()
 
     if(!testVoxelDivision(ecv,ecIndexes)){std::cout << "Error in voxel division for ec section" << std::endl;}
 
-    std::sort(isov.begin(),isov.end());
+    std::sort(isov.begin(),isov.end());//TODO:
 
     voxel = isov[0];
     for(int segment = 0; segment < _nV; segment++)

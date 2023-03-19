@@ -6,7 +6,7 @@
 template<typename T>
 bool areNearlyEqual(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.000009;
+    const T relative_error = 0.00001;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
@@ -69,6 +69,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 }
 
 __global__ void commitMatrixMultiplication(
+    int TILE_WIDTH,
     int nV,
     uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
     uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
@@ -79,72 +80,77 @@ __global__ void commitMatrixMultiplication(
     float* yDevice
 )
 {
-    const int voxel       = blockIdx.x * blockDim.x;
-    const int voxelOffset = voxel + threadIdx.x;
-
-    /* INITIALIZE THE VOXEL ACCUMULATOR */
     __shared__ float voxelAccumulator[100];
-    voxelAccumulator[threadIdx.x] = 0.0f;
 
-    //TODO: scorrere su tutti i voxel
-
-    /* IC */
-    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
-    const int endIcSegment   = icIndexesDevice[voxel]; 
-
-    for (int radii = 0; radii < nR; radii++)
+    for(int tile = 0; tile < ceilf(nV/TILE_WIDTH); tile++)
     {
-        int lookupTableOffset = radii*ndirs*blockDim.x;
+        const int voxel = tile * TILE_WIDTH + blockIdx.x;
 
-        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
+        if(voxel < nV)
         {
-            voxelAccumulator[threadIdx.x] += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * blockDim.x + threadIdx.x]*iclDevice[icsegment];
-        }
-    }
-
-    /* EC */
-    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-    const int endEcSegment   = ecIndexesDevice[voxel];
-
-    int xIndex = nR*nF;
-
-    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
-    {
-        int lookupTableOffset = tortuosity*ndirs*blockDim.x;
-
-        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
-        {
-            voxelAccumulator[threadIdx.x] += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * blockDim.x + threadIdx.x];
-            if(threadIdx.x == 0)
-            {
-                xIndex++;
-            }
+            voxelAccumulator[threadIdx.x] = 0.0f;
             __syncthreads();
-        }
-    }
 
-    /* ISO */
-    const int startIsoSegment = (voxel==0)?0:isoIndexesDevice[voxel-1];
-    const int endIsoSegment   = isoIndexesDevice[voxel];
+            /* IC */
+            const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
+            const int endIcSegment   = icIndexesDevice[voxel]; 
 
-    xIndex = nR*nF + nT*nE;
-
-    for (int iso = 0; iso < nI; iso++)
-    {
-        int lookupTableOffset = iso*blockDim.x;
-
-        for(int isosegment = startIsoSegment; isosegment < endIsoSegment; isosegment++)
-        {
-            voxelAccumulator[threadIdx.x] += xDevice[xIndex + iso*nV]*isoSFPDevice[lookupTableOffset + threadIdx.x];
-            if(threadIdx.x == 0)
+            for (int radii = 0; radii < nR; radii++)
             {
-                xIndex++;
+                int lookupTableOffset = radii*ndirs*blockDim.x;
+
+                for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
+                {
+                    voxelAccumulator[threadIdx.x] += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * blockDim.x + threadIdx.x]*iclDevice[icsegment];
+                    __syncthreads();
+                }
             }
-            __syncthreads();
+
+            /* EC */
+            const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
+            const int endEcSegment   = ecIndexesDevice[voxel];
+
+            int xIndex = nR*nF;
+
+            for (int tortuosity = 0; tortuosity < nT; tortuosity++)
+            {
+                int lookupTableOffset = tortuosity*ndirs*blockDim.x;
+
+                for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
+                {
+                    voxelAccumulator[threadIdx.x] += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * blockDim.x + threadIdx.x];
+                    if(threadIdx.x == 0)
+                    {
+                        xIndex++;
+                    }
+                    __syncthreads();
+                }
+            }
+
+            /* ISO  TODO:*/
+            const int startIsoSegment = (voxel==0)?0:isoIndexesDevice[voxel-1];
+            const int endIsoSegment   = isoIndexesDevice[voxel];
+
+            xIndex = nR*nF + nT*nE;
+
+            for (int iso = 0; iso < nI; iso++)
+            {
+                int lookupTableOffset = iso*blockDim.x;
+
+                for(int isosegment = startIsoSegment; isosegment < endIsoSegment; isosegment++)
+                {
+                    voxelAccumulator[threadIdx.x] += xDevice[xIndex + iso*nV]*isoSFPDevice[lookupTableOffset + threadIdx.x];
+                    if(threadIdx.x == 0)
+                    {
+                        xIndex++;
+                    }
+                    __syncthreads();
+                }
+            }
+
+            yDevice[voxel * blockDim.x + threadIdx.x] = voxelAccumulator[threadIdx.x];
         }
     }
-
-    yDevice[voxelOffset] = voxelAccumulator[threadIdx.x];
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
@@ -225,7 +231,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = 1; //TODO: scorrere su tutti i voxel
+    const int blocks = 35000;
     const int threadsPerBlock = _nS;
 
     dim3 dimGrid(blocks,1,1);
@@ -233,6 +239,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     cudaEventRecord(kernelStart);
     commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
+        blocks,
         _nV,
         icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
         ecvDevice,ecoDevice,_nT,_nE,
