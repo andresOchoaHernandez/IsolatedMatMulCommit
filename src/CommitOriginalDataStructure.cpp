@@ -35,8 +35,7 @@ isoThreads(_threads + 1),
 input(N),
 output(M),
 icIndexes(_nV,0),
-ecIndexes(_nV,0),
-isoIndexes(_nV,0)
+ecIndexes(_nV,0)
 {}
 
 template<typename T>
@@ -117,16 +116,12 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath,std::string
     inputPath = inputPath.substr(0,lenInputString);
 
     loadArray<uint32_t>(inputPath.append("isothreads.csv"),isoThreads);
-
-    for (uint32_t ie : isov){
-        std::cout << ie << std::endl;
-    }
 }
 
 template<typename T>
 bool areNearlyEqual(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.000009;
+    const T relative_error = 0.000002;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
@@ -186,10 +181,6 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
     float accumulator;
     int xIndex;
 
-    /*== DEBUG ==*/
-    /**/ unsigned WMRSFPACCESS = 0;
-    /*==========*/
-
     /* IC */
     for(int segment = 0 ; segment < _n ; segment++)
     {
@@ -199,17 +190,10 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
             for(int radii = 0 ; radii <  _nR; radii++ )
             {
                 accumulator += input[icf[segment] + radii] * wmrSFP[ (radii*_ndirs*_nS) + (ico[segment] * _nS + sample)];
-                /*== DEBUG ==*/
-                /**/ WMRSFPACCESS += 1;
-                /*==========*/
             }
             outputVector[icv[segment]*_nS + sample] += icl[segment]* accumulator;
         }
     }
-
-    /*== DEBUG ==*/
-    /**/ unsigned WMHSFPACCESS = 0;
-    /*==========*/
 
     /* EC */
     xIndex = _nR * _nF;
@@ -221,18 +205,11 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
             for(int ec = 0; ec < _nT ; ec++)
             {
                 accumulator += input[xIndex + ec * _nE] * wmhSFP[(ec*_ndirs*_nS) + (eco[segment] * _nS + sample)];
-                /*== DEBUG ==*/
-                /**/ WMHSFPACCESS += 1;
-                /*==========*/
             }
             outputVector[ecv[segment]*_nS + sample] += accumulator;
         }
         xIndex++;
     }
-
-    /*== DEBUG ==*/
-    /**/ unsigned ISOSFPACCESS = 0;
-    /*==========*/
 
     /* ISO */
     xIndex = _nR*_nF + _nT*_nE;
@@ -244,9 +221,6 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
             for(int iso = 0; iso < _nI ; iso++)
             {
                 accumulator += input[xIndex + iso*_nV] * isoSFP[iso*_nS + sample];
-                /*== DEBUG ==*/
-                /**/ ISOSFPACCESS += 1;
-                /*==========*/
             }
             outputVector[isov[i]*_nS + sample] += accumulator;
         }
@@ -389,19 +363,5 @@ void CommitOriginalDataStructure::orderByVoxel()
 
     if(!testVoxelDivision(ecv,ecIndexes)){std::cout << "Error in voxel division for ec section" << std::endl;}
 
-    std::sort(isov.begin(),isov.end());//TODO:
-
-    voxel = isov[0];
-    for(int segment = 0; segment < _nV; segment++)
-    {
-        if(isov[segment] != voxel)
-        {
-            isoIndexes[voxel] = segment;
-            voxel = isov[segment];
-        }
-    }
-
-    isoIndexes[_nV-1] =_nV-1;
-
-    if(!testVoxelDivision(isov,isoIndexes)){std::cout << "Error in voxel division for iso section" << std::endl;}
+    std::sort(isov.begin(),isov.end());
 }

@@ -56,7 +56,6 @@ class CommitOriginalDataStructure{
     /* ===== HELPER VECTORS ====*/
     std::vector<int> icIndexes;
     std::vector<int> ecIndexes;
-    std::vector<int> isoIndexes;
 
     public:
         CommitOriginalDataStructure(int nF, int n, int nE, int nV, int nS, int ndirs,int nI,int nR, int nT,int threads);

@@ -4,9 +4,9 @@
 
 /* ========================================================================================== */
 template<typename T>
-bool areNearlyEqual(T a, T b) {
+bool areNearlyEqualGpu(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.00001;
+    const T relative_error = 0.000005;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
@@ -23,7 +23,7 @@ bool areNearlyEqual(T a, T b) {
 }
 
 template<typename T>
-bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtained)
+bool verifyCorrectnessGpu(const std::vector<T>& correct,const std::vector<T>& obtained)
 {
     if (correct.size() != obtained.size())
     {
@@ -33,17 +33,17 @@ bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtai
 
     for(size_t i = 0;i < correct.size();i++)
     {
-        if(!areNearlyEqual<T>(correct[i],obtained[i]))
+        if(!areNearlyEqualGpu<T>(correct[i],obtained[i]))
         {
             std::cout << std::fixed << std::setprecision(6) <<
-                      "Error found : correct[" << i << "] = " << correct[i] << ", obtained[" << i << "] = " << obtained[i] << std::endl; 
+                      "Error found : correct[" << i << "] = " << correct[i] << ", obtained[" << i << "] = " << obtained[i] << ", abs err : " << std::abs(correct[i] - obtained[i])<< std::endl; 
             return false;
         }
     }
     return true;
 }
 
-void printResult(const std::string& message,bool correctness,float kernelTime,float totalTime){
+void printResultGpu(const std::string& message,bool correctness,float kernelTime,float totalTime){
 
     const std::string upperSepSx  = "------------------ ";
     const std::string upperSepDx  = " ------------------";
@@ -75,21 +75,22 @@ __global__ void commitMatrixMultiplication(
     uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
     uint32_t* isovDevice, int nI,
     float* wmrSFPDevice, float* wmhSFPDevice, float* isoSFPDevice,int ndirs,
-    int* icIndexesDevice, int* ecIndexesDevice, int* isoIndexesDevice,
+    int* icIndexesDevice, int* ecIndexesDevice,
     float* xDevice,
     float* yDevice
 )
 {
     __shared__ float voxelAccumulator[100];
 
-    for(int tile = 0; tile < ceilf(nV/TILE_WIDTH); tile++)
+    const int TOTAL_TILES = 1+((nV-1)/TILE_WIDTH);
+
+    for(int tile = 0 ; tile < TOTAL_TILES ; tile++)
     {
         const int voxel = tile * TILE_WIDTH + blockIdx.x;
 
-        if(voxel < nV)
+        if(voxel < nV) //TODO: FIX VOXEL ODDITY
         {
             voxelAccumulator[threadIdx.x] = 0.0f;
-            __syncthreads();
 
             /* IC */
             const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
@@ -98,11 +99,10 @@ __global__ void commitMatrixMultiplication(
             for (int radii = 0; radii < nR; radii++)
             {
                 int lookupTableOffset = radii*ndirs*blockDim.x;
-
+    
                 for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
                 {
                     voxelAccumulator[threadIdx.x] += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * blockDim.x + threadIdx.x]*iclDevice[icsegment];
-                    __syncthreads();
                 }
             }
 
@@ -110,42 +110,23 @@ __global__ void commitMatrixMultiplication(
             const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
             const int endEcSegment   = ecIndexesDevice[voxel];
 
-            int xIndex = nR*nF;
+            int xIndex = nR*nF + startEcSegment;
 
             for (int tortuosity = 0; tortuosity < nT; tortuosity++)
             {
                 int lookupTableOffset = tortuosity*ndirs*blockDim.x;
-
+    
                 for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
                 {
                     voxelAccumulator[threadIdx.x] += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * blockDim.x + threadIdx.x];
-                    if(threadIdx.x == 0)
-                    {
-                        xIndex++;
-                    }
-                    __syncthreads();
+                    xIndex++;
                 }
             }
 
-            /* ISO  TODO:*/
-            const int startIsoSegment = (voxel==0)?0:isoIndexesDevice[voxel-1];
-            const int endIsoSegment   = isoIndexesDevice[voxel];
-
-            xIndex = nR*nF + nT*nE;
-
+            /* ISO */
             for (int iso = 0; iso < nI; iso++)
             {
-                int lookupTableOffset = iso*blockDim.x;
-
-                for(int isosegment = startIsoSegment; isosegment < endIsoSegment; isosegment++)
-                {
-                    voxelAccumulator[threadIdx.x] += xDevice[xIndex + iso*nV]*isoSFPDevice[lookupTableOffset + threadIdx.x];
-                    if(threadIdx.x == 0)
-                    {
-                        xIndex++;
-                    }
-                    __syncthreads();
-                }
+                voxelAccumulator[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso*blockDim.x + threadIdx.x];
             }
 
             yDevice[voxel * blockDim.x + threadIdx.x] = voxelAccumulator[threadIdx.x];
@@ -206,15 +187,13 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(isoSFPDevice,isoSFP.data(),sizeof(float)*isoSFP.size(),cudaMemcpyHostToDevice))
 
     /* HELPER ARRAYS */
-    int* icIndexesDevice;int* ecIndexesDevice;int* isoIndexesDevice;
+    int* icIndexesDevice;int* ecIndexesDevice;
 
     CUDAERRCHECK(cudaMalloc(&icIndexesDevice,sizeof(int)*icIndexes.size()))
     CUDAERRCHECK(cudaMalloc(&ecIndexesDevice,sizeof(int)*ecIndexes.size()))
-    CUDAERRCHECK(cudaMalloc(&isoIndexesDevice,sizeof(int)*isoIndexes.size()))
 
     CUDAERRCHECK(cudaMemcpy(icIndexesDevice,icIndexes.data(),sizeof(int)*icIndexes.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(ecIndexesDevice,ecIndexes.data(),sizeof(int)*ecIndexes.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(isoIndexesDevice,isoIndexes.data(),sizeof(int)*isoIndexes.size(),cudaMemcpyHostToDevice))
 
     /* INPUT */
     float* xDevice;
@@ -245,7 +224,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
         ecvDevice,ecoDevice,_nT,_nE,
         isovDevice,_nI,
         wmrSFPDevice,wmhSFPDevice,isoSFPDevice,_ndirs,
-        icIndexesDevice,ecIndexesDevice,isoIndexesDevice,
+        icIndexesDevice,ecIndexesDevice,
         xDevice,
         yDevice
     );
@@ -260,7 +239,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaFree(ecvDevice);cudaFree(ecoDevice);
     cudaFree(isovDevice);
     cudaFree(wmrSFPDevice);cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
-    cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);cudaFree(isoIndexesDevice);
+    cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);
 
     cudaEventRecord(totalStop);
 
@@ -273,7 +252,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     float totalMilliseconds = 0;
     cudaEventElapsedTime(&totalMilliseconds,totalStart,totalStop);
     
-    printResult("Gpu matrix multiplication", verifyCorrectness<float>(output,obtainedResult),kernelMilliseconds,totalMilliseconds);
+    printResultGpu("Gpu matrix multiplication", verifyCorrectnessGpu<float>(output,obtainedResult),kernelMilliseconds,totalMilliseconds);
 
     cudaDeviceReset();
 }
