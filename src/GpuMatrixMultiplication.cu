@@ -88,7 +88,7 @@ __global__ void commitMatrixMultiplication(
     {
         const int voxel = tile * TILE_WIDTH + blockIdx.x;
 
-        if(voxel < nV) //TODO: FIX VOXEL ODDITY
+        if(voxel < nV)
         {
             voxelAccumulator[threadIdx.x] = 0.0f;
 
@@ -110,15 +110,14 @@ __global__ void commitMatrixMultiplication(
             const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
             const int endEcSegment   = ecIndexesDevice[voxel];
 
-            int xIndex = nR*nF + startEcSegment;
-
             for (int tortuosity = 0; tortuosity < nT; tortuosity++)
             {
                 int lookupTableOffset = tortuosity*ndirs*blockDim.x;
-    
+                int xIndex = nR*nF + tortuosity*nE + startEcSegment;
+
                 for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
                 {
-                    voxelAccumulator[threadIdx.x] += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * blockDim.x + threadIdx.x];
+                    voxelAccumulator[threadIdx.x] += xDevice[xIndex]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * blockDim.x + threadIdx.x];
                     xIndex++;
                 }
             }

@@ -2,7 +2,7 @@ project(IsolatedMatMultCommit)
 
 cmake_minimum_required(VERSION 3.8.2)
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20 -Wextra -Wpedantic -pthread -O3")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++2a -Wextra -Wpedantic -pthread -O3")
 
 SET(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
 SET(CMAKE_CUDA_ARCHITECTURES 75)
