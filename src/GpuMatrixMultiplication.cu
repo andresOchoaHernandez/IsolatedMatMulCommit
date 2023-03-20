@@ -43,17 +43,35 @@ bool verifyCorrectnessGpu(const std::vector<T>& correct,const std::vector<T>& ob
     return true;
 }
 
-void printResultGpu(const std::string& message,bool correctness,float kernelTime,float totalTime){
+float gpuCalculateAverageAbsoluteError(const std::vector<float>& correct,const std::vector<float>& obtained)
+{
+    if (correct.size() != obtained.size())
+    {
+        std::cout << "Correct and obtained vectors don't have same size!" << std::endl;
+        return false;
+    }
+
+    float accAbsErr = 0.0f;
+
+    for(size_t i = 0;i < correct.size();i++)
+    {
+        accAbsErr += std::abs(correct[i] - obtained[i]);
+    }
+    return accAbsErr/static_cast<float>(correct.size());
+}
+
+void printResultGpu(const std::string& message,const std::vector<float>& correct,const std::vector<float>& obtained,bool correctness,float kernelTime,float totalTime){
 
     const std::string upperSepSx  = "------------------ ";
     const std::string upperSepDx  = " ------------------";
     const std::string downerSep(upperSepSx.length()*2+message.length(),'-'); 
 
-    std::cout << upperSepSx << message << upperSepDx                       << std::endl
-              << "| correct        => " << ((correctness)? "true":"false") << std::endl
-              << "| kernel time    => " << kernelTime << " ms"             << std::endl
-              << "| total  time    => " << totalTime  << " ms"             << std::endl
-              << downerSep                                                 << std::endl;  
+    std::cout << upperSepSx << message << upperSepDx                                       << std::endl
+              << "| correct        => " << ((correctness)? "true":"false")                    << std::endl
+              << "| kernel time    => " << kernelTime << " ms"                             << std::endl
+              << "| total  time    => " << totalTime  << " ms"                             << std::endl
+              << "| avg abs err    => " << gpuCalculateAverageAbsoluteError(correct,obtained) << std::endl
+              << downerSep                                                                 << std::endl;
 
 }
 /* ========================================================================================== */
@@ -251,7 +269,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     float totalMilliseconds = 0;
     cudaEventElapsedTime(&totalMilliseconds,totalStart,totalStop);
     
-    printResultGpu("Gpu matrix multiplication", verifyCorrectnessGpu<float>(output,obtainedResult),kernelMilliseconds,totalMilliseconds);
+    printResultGpu("Gpu matrix multiplication",output,obtainedResult,verifyCorrectnessGpu<float>(output,obtainedResult),kernelMilliseconds,totalMilliseconds);
 
     cudaDeviceReset();
 }
