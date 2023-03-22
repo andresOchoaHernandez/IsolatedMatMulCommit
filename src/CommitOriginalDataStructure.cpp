@@ -156,16 +156,34 @@ bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtai
     return true;
 }
 
-void printResult(const std::string& message,bool correctness, long int time){
+float calculateAverageAbsoluteError(const std::vector<float>& correct,const std::vector<float>& obtained)
+{
+    if (correct.size() != obtained.size())
+    {
+        std::cout << "Correct and obtained vectors don't have same size!" << std::endl;
+        return false;
+    }
+
+    float accAbsErr = 0.0f;
+
+    for(size_t i = 0;i < correct.size();i++)
+    {
+        accAbsErr += std::abs(correct[i] - obtained[i]);
+    }
+    return accAbsErr/static_cast<float>(correct.size());
+}
+
+void printResult(const std::string& message,const std::vector<float>& correct,const std::vector<float>& obtained,bool correctness, long int time){
 
     const std::string upperSepSx  = "------------------ ";
     const std::string upperSepDx  = " ------------------";
     const std::string downerSep(upperSepSx.length()*2+message.length(),'-'); 
 
-    std::cout << upperSepSx << message << upperSepDx                << std::endl
-              << "| correct => " << ((correctness)? "true":"false") << std::endl
-              << "| time    => " << time << " ms"                   << std::endl
-              << downerSep                                          << std::endl;  
+    std::cout << upperSepSx << message << upperSepDx                                    << std::endl
+              << "| correct     => " << ((correctness)? "true":"false")                 << std::endl
+              << "| time        => " << time << " ms"                                   << std::endl
+              << "| avg abs err => " << calculateAverageAbsoluteError(correct,obtained) << std::endl
+              << downerSep                                                              << std::endl;
 
 }
 
@@ -228,7 +246,7 @@ void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
 
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
-    printResult("Sequential matrix multiplication", verifyCorrectness<float>(output,outputVector),time);
+    printResult("Sequential matrix multiplication",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
 }
 
 void CommitOriginalDataStructure::threadedMatrixMultiplication(){
@@ -251,5 +269,5 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
 
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
-    printResult("Threaded matrix multiplication", verifyCorrectness<float>(output,outputVector),time);
+    printResult("Threaded matrix multiplication",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
 }
