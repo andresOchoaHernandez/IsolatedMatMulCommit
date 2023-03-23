@@ -59,7 +59,7 @@ class CommitOriginalDataStructure{
 
     public:
         CommitOriginalDataStructure(int nF, int n, int nE, int nV, int nS, int ndirs,int nI,int nR, int nT,int threads);
-        void loadDataset(std::string& inputPath,std::string& outputPath);
+        void loadDataset(std::string& inputPath);
 
         void sequentialMatrixMultiplication();
         void threadedMatrixMultiplication();
