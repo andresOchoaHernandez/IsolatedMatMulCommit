@@ -160,7 +160,7 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath)
 template<typename T>
 bool areNearlyEqual(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.000009;
+    const T relative_error = 0.00001;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
