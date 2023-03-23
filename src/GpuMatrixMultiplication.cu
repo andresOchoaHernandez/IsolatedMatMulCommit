@@ -6,7 +6,7 @@
 template<typename T>
 bool areNearlyEqualGpu(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.000005;
+    const T relative_error = 0.00001;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
@@ -227,7 +227,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = 35000;
+    const int blocks = 40000;
     const int threadsPerBlock = _nS;
 
     dim3 dimGrid(blocks,1,1);

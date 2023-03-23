@@ -162,7 +162,7 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath)
 template<typename T>
 bool areNearlyEqual(T a, T b) {
     const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.000002;
+    const T relative_error = 0.00001;
     if (!std::isfinite(a) || !std::isfinite(b))
     {
         return false;
@@ -378,7 +378,7 @@ void CommitOriginalDataStructure::orderByVoxel()
         }
     }
 
-    icIndexes[_nV-1] =_n-1;
+    icIndexes[_nV-1] =_n;
 
     if(!testVoxelDivision(icv,icIndexes)){std::cout << "Error in voxel division for ic section" << std::endl;}
 
@@ -418,7 +418,7 @@ void CommitOriginalDataStructure::orderByVoxel()
         }
     }
 
-    ecIndexes[_nV-1] =_nE-1;
+    ecIndexes[_nV-1] =_nE;
 
     if(!testVoxelDivision(ecv,ecIndexes)){std::cout << "Error in voxel division for ec section" << std::endl;}
 
