@@ -21,9 +21,7 @@ int main()
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
 
     std::string input  = "../dataset/input/";
-    std::string output = "../dataset/output/";
-
-    originalDataStructure.loadDataset(input,output);
+    originalDataStructure.loadDataset(input);
 
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();

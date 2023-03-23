@@ -66,15 +66,12 @@ void loadArray(const std::string& path,std::vector<T>& array)
     }
 }
 
-void CommitOriginalDataStructure::loadDataset(std::string& inputPath,std::string& outputPath)
+void CommitOriginalDataStructure::loadDataset(std::string& inputPath)
 {
     unsigned lenInputString = inputPath.size();
-    unsigned lenOutputString = outputPath.size();
 
     loadArray<float>(inputPath.append("vectorIn.csv"),input);
     inputPath = inputPath.substr(0,lenInputString);
-        
-    loadArray<float>(outputPath.append("vectorOut.csv"),output);
 
     loadArray<uint32_t>(inputPath.append("icf.csv"),icf);
     inputPath = inputPath.substr(0,lenInputString);
@@ -113,6 +110,50 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath,std::string
     inputPath = inputPath.substr(0,lenInputString);
 
     loadArray<uint32_t>(inputPath.append("isothreads.csv"),isoThreads);
+
+    /* INITIALIZE CORRECT OUTPUT ARRAY */
+    float accumulator;
+    int xIndex;
+    for(int segment = 0 ; segment < _n ; segment++)
+    {
+        for(int sample = 0; sample < _nS; sample++)
+        {
+            accumulator = 0.0f;
+            for(int radii = 0 ; radii <  _nR; radii++ )
+            {
+                accumulator += input[icf[segment] + radii] * wmrSFP[ (radii*_ndirs*_nS) + (ico[segment] * _nS + sample)];
+            }
+            output[icv[segment]*_nS + sample] += icl[segment]* accumulator;
+        }
+    }
+    xIndex = _nR * _nF;
+    for(int segment = 0; segment < _nE; segment++)
+    {
+        for(int sample = 0; sample < _nS ; sample++)
+        {
+            accumulator = 0.0f;
+            for(int ec = 0; ec < _nT ; ec++)
+            {
+                accumulator += input[xIndex + ec * _nE] * wmhSFP[(ec*_ndirs*_nS) + (eco[segment] * _nS + sample)];
+            }
+            output[ecv[segment]*_nS + sample] += accumulator;
+        }
+        xIndex++;
+    }
+    xIndex = _nR*_nF + _nT*_nE;
+    for(int i = 0; i < _nV ; i++)
+    {
+        for(int sample = 0 ; sample < _nS ; sample++)
+        {
+            accumulator = 0.0f;
+            for(int iso = 0; iso < _nI ; iso++)
+            {
+                accumulator += input[xIndex + iso*_nV] * isoSFP[iso*_nS + sample];
+            }
+            output[isov[i]*_nS + sample] += accumulator;
+        }
+        xIndex++;
+    }
 }
 
 template<typename T>
