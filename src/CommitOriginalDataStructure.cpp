@@ -316,111 +316,96 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
     printResult("Threaded matrix multiplication",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
 }
 
-/*==================== TESTING VOXEL DIVISION =====================*/
-bool testVoxelDivision(const std::vector<uint32_t>& voxelIndexes,const std::vector<int>& helperIndexes)
-{
-    int initialIndex = 0;
-    for(int helperIndex : helperIndexes)
-    {
-        uint32_t voxel = voxelIndexes[initialIndex];
-        for(int index = initialIndex; index < helperIndex; index++ )
-        {
-            if(voxel != voxelIndexes[index]){
-                return false;
-            }
-        }
-        initialIndex = helperIndex;
-    }
-
-    return true;
-}
-/*=================================================================*/
-
 void CommitOriginalDataStructure::orderByVoxel()
 {
-    struct IcSection
+    if(_n > 0 && _nR > 0)
     {
-        uint32_t fiber;
-        uint32_t voxel;
-        uint16_t orientation;
-        float    length;
-
-        bool operator<(const IcSection& other)
+        struct IcSection
         {
-            return voxel < other.voxel;
-        }
-    };
+            uint32_t fiber;
+            uint32_t voxel;
+            uint16_t orientation;
+            float    length;
 
-    std::vector<IcSection> icSegments;
+            bool operator<(const IcSection& other)
+            {
+                return voxel < other.voxel;
+            }
+        };
 
-    for(int seg = 0; seg < _n; seg++)
-    {
-        icSegments.push_back({.fiber=icf[seg],.voxel=icv[seg],.orientation=ico[seg],.length=icl[seg]});
-    }
+        std::vector<IcSection> icSegments;
 
-    std::sort(icSegments.begin(),icSegments.end());
-
-    for(int seg = 0; seg < _n; seg++)
-    {
-        icf[seg] = icSegments[seg].fiber;
-        icv[seg] = icSegments[seg].voxel;
-        ico[seg] = icSegments[seg].orientation;
-        icl[seg] = icSegments[seg].length;
-    }
-
-    uint32_t voxel = icv[0];
-    for(int segment = 0; segment < _n; segment++)
-    {
-        if(icv[segment] != voxel)
+        for(int seg = 0; seg < _n; seg++)
         {
-            icIndexes[voxel] = segment;
-            voxel = icv[segment];
+            icSegments.push_back({.fiber=icf[seg],.voxel=icv[seg],.orientation=ico[seg],.length=icl[seg]});
         }
-    }
 
-    icIndexes[_nV-1] =_n;
+        std::sort(icSegments.begin(),icSegments.end());
 
-    if(!testVoxelDivision(icv,icIndexes)){std::cout << "Error in voxel division for ic section" << std::endl;}
-
-    struct EcSection
-    {
-        uint32_t voxel;
-        uint16_t orientation;
-
-        bool operator<(const EcSection& other)
+        for(int seg = 0; seg < _n; seg++)
         {
-            return voxel < other.voxel;
+            icf[seg] = icSegments[seg].fiber;
+            icv[seg] = icSegments[seg].voxel;
+            ico[seg] = icSegments[seg].orientation;
+            icl[seg] = icSegments[seg].length;
         }
-    };
 
-    std::vector<EcSection> ecSegments;
-
-    for(int seg = 0; seg < _nE; seg++)
-    {
-        ecSegments.push_back({.voxel=ecv[seg],.orientation=eco[seg]});
-    }
-
-    std::sort(ecSegments.begin(),ecSegments.end());
-
-    for(int seg = 0; seg < _nE; seg++)
-    {
-        ecv[seg] = ecSegments[seg].voxel;
-        eco[seg] = ecSegments[seg].orientation;
-    }
-
-    voxel = ecv[0];
-    for(int segment = 0; segment < _nE; segment++)
-    {
-        if(ecv[segment] != voxel)
+        uint32_t voxel = icv[0];
+        for(int segment = 0; segment < _n; segment++)
         {
-            ecIndexes[voxel] = segment;
-            voxel = ecv[segment];
+            if(icv[segment] != voxel)
+            {
+                icIndexes[voxel] = segment;
+                voxel = icv[segment];
+            }
         }
+
+        icIndexes[_nV-1] =_n;
     }
 
-    ecIndexes[_nV-1] =_nE;
+    if(_nE > 0 && _nT > 0)
+    {
+        struct EcSection
+        {
+            uint32_t voxel;
+            uint16_t orientation;
 
-    if(!testVoxelDivision(ecv,ecIndexes)){std::cout << "Error in voxel division for ec section" << std::endl;}
+            bool operator<(const EcSection& other)
+            {
+                return voxel < other.voxel;
+            }
+        };
 
-    std::sort(isov.begin(),isov.end());
+        std::vector<EcSection> ecSegments;
+
+        for(int seg = 0; seg < _nE; seg++)
+        {
+            ecSegments.push_back({.voxel=ecv[seg],.orientation=eco[seg]});
+        }
+
+        std::sort(ecSegments.begin(),ecSegments.end());
+
+        for(int seg = 0; seg < _nE; seg++)
+        {
+            ecv[seg] = ecSegments[seg].voxel;
+            eco[seg] = ecSegments[seg].orientation;
+        }
+
+        uint32_t voxel = ecv[0];
+        for(int segment = 0; segment < _nE; segment++)
+        {
+            if(ecv[segment] != voxel)
+            {
+                ecIndexes[voxel] = segment;
+                voxel = ecv[segment];
+            }
+        }
+
+        ecIndexes[_nV-1] =_nE;
+    }
+
+    if(_nI > 0)
+    {
+        std::sort(isov.begin(),isov.end());    
+    }
 }
