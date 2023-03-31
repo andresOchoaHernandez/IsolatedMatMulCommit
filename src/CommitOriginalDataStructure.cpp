@@ -66,51 +66,78 @@ void loadArray(const std::string& path,std::vector<T>& array)
     }
 }
 
-void CommitOriginalDataStructure::loadDataset(std::string& inputPath)
+void CommitOriginalDataStructure::loadDataset()
 {
-    unsigned lenInputString = inputPath.size();
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
-    loadArray<float>(inputPath.append("vectorIn.csv"),input);
-    inputPath = inputPath.substr(0,lenInputString);
+    #pragma omp parallel
+    {
+       #pragma omp single
+       {
+            #pragma omp task
+            {
+                loadArray<float>("../dataset/input/vectorIn.csv",input);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/icf.csv",icf);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/icv.csv",icv);
+            }
+            #pragma omp task
+            {
+                loadArray<uint16_t>("../dataset/input/ico.csv",ico);
+            }
+            #pragma omp task
+            {
+                loadArray<float>("../dataset/input/icl.csv",icl);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/ecv.csv",ecv);
+            }
+            #pragma omp task
+            {
+                loadArray<uint16_t>("../dataset/input/eco.csv",eco);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/isov.csv",isov);
+            }
+            #pragma omp task
+            {
+                loadArray<float>("../dataset/input/wmrsfp.csv",wmrSFP);
+            }
+            #pragma omp task
+            {
+                loadArray<float>("../dataset/input/wmhsfp.csv",wmhSFP);
+            }
+            #pragma omp task
+            {
+                loadArray<float>("../dataset/input/isosfp.csv",isoSFP);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/icthreads.csv",icThreads);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/ecthreads.csv",ecThreads);
+            }
+            #pragma omp task
+            {
+                loadArray<uint32_t>("../dataset/input/isothreads.csv",isoThreads);
+            }
+       } 
+    }
 
-    loadArray<uint32_t>(inputPath.append("icf.csv"),icf);
-    inputPath = inputPath.substr(0,lenInputString);
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
-    loadArray<uint32_t>(inputPath.append("icv.csv"),icv);
-    inputPath = inputPath.substr(0,lenInputString);
+    long int timeLoading = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
-    loadArray<uint16_t>(inputPath.append("ico.csv"),ico);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<float>(inputPath.append("icl.csv"),icl);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<uint32_t>(inputPath.append("ecv.csv"),ecv);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<uint16_t>(inputPath.append("eco.csv"),eco);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<uint32_t>(inputPath.append("isov.csv"),isov);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<float>(inputPath.append("wmrsfp.csv"),wmrSFP);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<float>(inputPath.append("wmhsfp.csv"),wmhSFP);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<float>(inputPath.append("isosfp.csv"),isoSFP);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<uint32_t>(inputPath.append("icthreads.csv"),icThreads);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<uint32_t>(inputPath.append("ecthreads.csv"),ecThreads);
-    inputPath = inputPath.substr(0,lenInputString);
-
-    loadArray<uint32_t>(inputPath.append("isothreads.csv"),isoThreads);
-
+    begin = std::chrono::steady_clock::now();
     /* INITIALIZE CORRECT OUTPUT ARRAY */
     float accumulator;
     int xIndex;
@@ -154,6 +181,13 @@ void CommitOriginalDataStructure::loadDataset(std::string& inputPath)
         }
         xIndex++;
     }
+    end = std::chrono::steady_clock::now();
+    long int timeInitOutput = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+    std::cout << "------------------ Loading dataset ------------------"     << std::endl
+              << "| time                     => " << timeLoading    << " ms" << std::endl
+              << "| time initializing output => " << timeInitOutput << " ms" << std::endl
+              << "-----------------------------------------------------"     << std::endl;
 }
 
 template<typename T>

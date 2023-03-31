@@ -6,6 +6,11 @@ SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wextra -Wpedantic -pthread -O3")
 
 add_executable(comparison ${PROJECT_SOURCE_DIR}/comparison.cpp)
 
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(comparison PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 target_include_directories(
     comparison
     PUBLIC  ${PROJECT_SOURCE_DIR}/include/

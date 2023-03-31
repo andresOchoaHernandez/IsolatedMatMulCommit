@@ -19,9 +19,7 @@ int main()
     const int threads = 32;
 
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
-
-    std::string input  = "../dataset/input/";
-    originalDataStructure.loadDataset(input);
+    originalDataStructure.loadDataset();
 
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
