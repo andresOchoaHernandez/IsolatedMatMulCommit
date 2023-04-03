@@ -86,8 +86,30 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-#define SAMPLE_TILE_WIDTH 64
-#define VOXEL_TILE_WIDTH 960
+/*
+    QUADDRO P6000 => 
+                        max_threads_per_sm : 2048
+                        max_blocks_per_sm  : 32
+                        -------------------------
+                        threads per block to achieve max occupancy : 64
+
+                        n_sm : 30
+                        -------------------------
+                        to achieve full GPU occupancy : 960 (or a multiple of it) blocks of 64 threads
+
+    RTX 2060      => 
+                        max_threads_per_sm : 1024
+                        max_blocks_per_sm  : 16
+                        -------------------------
+                        threads per block to achieve max occupancy : 64
+
+                        n_sm : 30
+                        -------------------------
+                        to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
+*/
+
+#define SAMPLE_TILE_WIDTH 64 * 2
+#define VOXEL_TILE_WIDTH 480 * 15
 
 __global__ void commitMatrixMultiplication(
     int nS,
