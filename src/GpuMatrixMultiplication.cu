@@ -86,9 +86,11 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
+#define SAMPLE_TILE_WIDTH 100
+#define VOXEL_TILE_WIDTH 40000
+
 __global__ void commitMatrixMultiplication(
     int nS,
-    int VOXEL_TILE_WIDTH,
     int nV,
     uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
     uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
@@ -99,9 +101,9 @@ __global__ void commitMatrixMultiplication(
     float* yDevice
 )
 {
-    __shared__ float voxelAccumulator[100];
+    __shared__ float voxelAccumulator[SAMPLE_TILE_WIDTH];
 
-    const int TOTAL_SAMPLE_TILES = 1+((nS-1)/100);
+    const int TOTAL_SAMPLE_TILES = 1+((nS-1)/SAMPLE_TILE_WIDTH);
 
     const int TOTAL_VOXEL_TILES = 1+((nV-1)/VOXEL_TILE_WIDTH);
 
@@ -113,7 +115,7 @@ __global__ void commitMatrixMultiplication(
         {
             for(int sampleTile = 0; sampleTile < TOTAL_SAMPLE_TILES; sampleTile++)
             {
-                const int sampleIndex = sampleTile * 100 + threadIdx.x;
+                const int sampleIndex = sampleTile * SAMPLE_TILE_WIDTH + threadIdx.x;
 
                 if(sampleIndex < nS)
                 {
@@ -233,8 +235,8 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = 40000;
-    const int threadsPerBlock = 100;
+    const int blocks = VOXEL_TILE_WIDTH;
+    const int threadsPerBlock = SAMPLE_TILE_WIDTH;
 
     dim3 dimGrid(blocks,1,1);
     dim3 dimBlock(threadsPerBlock,1,1);
@@ -242,7 +244,6 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaEventRecord(kernelStart);
     commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
         _nS,
-        blocks,
         _nV,
         icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
         ecvDevice,ecoDevice,_nT,_nE,
