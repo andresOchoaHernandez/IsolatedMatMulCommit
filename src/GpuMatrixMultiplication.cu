@@ -86,8 +86,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-#define SAMPLE_TILE_WIDTH 100
-#define VOXEL_TILE_WIDTH 40000
+#define SAMPLE_TILE_WIDTH 64
+#define VOXEL_TILE_WIDTH 960
 
 __global__ void commitMatrixMultiplication(
     int nS,
