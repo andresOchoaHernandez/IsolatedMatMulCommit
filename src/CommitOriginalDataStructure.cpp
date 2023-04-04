@@ -138,56 +138,19 @@ void CommitOriginalDataStructure::loadDataset()
 
     long int timeLoading = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
-    begin = std::chrono::steady_clock::now();
     /* INITIALIZE CORRECT OUTPUT ARRAY */
-    float accumulator;
-    int xIndex;
-    for(int segment = 0 ; segment < _n ; segment++)
-    {
-        for(int sample = 0; sample < _nS; sample++)
-        {
-            accumulator = 0.0f;
-            for(int radii = 0 ; radii <  _nR; radii++ )
-            {
-                accumulator += input[icf[segment] + radii] * wmrSFP[ (radii*_ndirs*_nS) + (ico[segment] * _nS + sample)];
-            }
-            output[icv[segment]*_nS + sample] += icl[segment]* accumulator;
-        }
-    }
-    xIndex = _nR * _nF;
-    for(int segment = 0; segment < _nE; segment++)
-    {
-        for(int sample = 0; sample < _nS ; sample++)
-        {
-            accumulator = 0.0f;
-            for(int ec = 0; ec < _nT ; ec++)
-            {
-                accumulator += input[xIndex + ec * _nE] * wmhSFP[(ec*_ndirs*_nS) + (eco[segment] * _nS + sample)];
-            }
-            output[ecv[segment]*_nS + sample] += accumulator;
-        }
-        xIndex++;
-    }
-    xIndex = _nR*_nF + _nT*_nE;
-    for(int i = 0; i < _nV ; i++)
-    {
-        for(int sample = 0 ; sample < _nS ; sample++)
-        {
-            accumulator = 0.0f;
-            for(int iso = 0; iso < _nI ; iso++)
-            {
-                accumulator += input[xIndex + iso*_nV] * isoSFP[iso*_nS + sample];
-            }
-            output[isov[i]*_nS + sample] += accumulator;
-        }
-        xIndex++;
-    }
-    end = std::chrono::steady_clock::now();
-    long int timeInitOutput = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+    threaded_matVecMult(
+        _nF, _n, _nE, _nV, _nS, _ndirs,
+        input.data(),output.data(),
+        icf.data(),icv.data(),ico.data(),icl.data(),
+        ecv.data(),eco.data(),
+        isov.data(),
+        wmrSFP.data(),wmhSFP.data(),isoSFP.data(),
+        icThreads.data(),ecThreads.data(),isoThreads.data()
+    );
 
     std::cout << "------------------ Loading dataset ------------------"     << std::endl
               << "| time                     => " << timeLoading    << " ms" << std::endl
-              << "| time initializing output => " << timeInitOutput << " ms" << std::endl
               << "-----------------------------------------------------"     << std::endl;
 }
 

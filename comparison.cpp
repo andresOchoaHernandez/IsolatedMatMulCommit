@@ -16,7 +16,6 @@ int main()
     int _n        = 16664340;
     int _ndirs    = 32761;
 
-    //const int threads = std::thread::hardware_concurrency();
     const int threads = 32;
 
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
