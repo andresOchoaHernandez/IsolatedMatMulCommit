@@ -329,7 +329,7 @@ void CommitOriginalDataStructure::orderByVoxel()
 
             bool operator<(const IcSection& other)
             {
-                return voxel < other.voxel;
+                return (voxel == other.voxel)?(fiber == other.fiber)?orientation < other.orientation:fiber<other.fiber:(voxel < other.voxel);
             }
         };
 
