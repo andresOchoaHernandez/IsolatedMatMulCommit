@@ -108,18 +108,18 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define SAMPLE_TILE_WIDTH 64 * 2
-#define VOXEL_TILE_WIDTH 480 * 15
+#define SAMPLE_TILE_WIDTH 64*2
+#define VOXEL_TILE_WIDTH 480*10
 
 __global__ void commitMatrixMultiplication(
-    int nS,
-    int nV,
-    uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
-    uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
-    uint32_t* isovDevice, int nI,
-    float* wmrSFPDevice, float* wmhSFPDevice, float* isoSFPDevice,int ndirs,
-    int* icIndexesDevice, int* ecIndexesDevice,
-    float* xDevice,
+    const int nS,
+    const int nV,
+    const uint32_t* icfDevice, const uint32_t* icvDevice, const uint16_t* icoDevice, const float* iclDevice, const int nR,const int nF,
+    const uint32_t* ecvDevice, const uint16_t* ecoDevice, const int nT,const int nE,
+    const uint32_t* isovDevice, const int nI,
+    const float* wmrSFPDevice, const float* wmhSFPDevice, const float* isoSFPDevice,const int ndirs,
+    const int* icIndexesDevice, const int* ecIndexesDevice,
+    const float* xDevice,
     float* yDevice
 )
 {
@@ -135,6 +135,12 @@ __global__ void commitMatrixMultiplication(
 
         if(voxel < nV)
         {
+            const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
+            const int endIcSegment   = icIndexesDevice[voxel];
+
+            const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
+            const int endEcSegment   = ecIndexesDevice[voxel];
+
             for(int sampleTile = 0; sampleTile < TOTAL_SAMPLE_TILES; sampleTile++)
             {
                 const int sampleIndex = sampleTile * SAMPLE_TILE_WIDTH + threadIdx.x;
@@ -142,10 +148,8 @@ __global__ void commitMatrixMultiplication(
                 if(sampleIndex < nS)
                 {
                     voxelAccumulator[threadIdx.x] = 0.0f;
+                    
                     /* IC */
-                    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
-                    const int endIcSegment   = icIndexesDevice[voxel];
-
                     for (int radii = 0; radii < nR; radii++)
                     {
                         int lookupTableOffset = radii*ndirs*nS;
@@ -155,9 +159,8 @@ __global__ void commitMatrixMultiplication(
                             voxelAccumulator[threadIdx.x] += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * nS + sampleIndex]*iclDevice[icsegment];
                         }
                     }
+                    
                     /* EC */
-                    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-                    const int endEcSegment   = ecIndexesDevice[voxel];
                     for (int tortuosity = 0; tortuosity < nT; tortuosity++)
                     {
                         int lookupTableOffset = tortuosity*ndirs*nS;
@@ -169,11 +172,13 @@ __global__ void commitMatrixMultiplication(
                             xIndex++;
                         }
                     }
+                    
                     /* ISO */
                     for (int iso = 0; iso < nI; iso++)
                     {
                         voxelAccumulator[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sampleIndex];
                     }
+
                     yDevice[voxel * nS + sampleIndex] = voxelAccumulator[threadIdx.x];
                 }
             }
