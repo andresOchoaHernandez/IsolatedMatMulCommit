@@ -108,8 +108,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define SAMPLE_TILE_WIDTH 64*2
-#define VOXEL_TILE_WIDTH 480*10
+#define N_BLOCKS 480 * 15
+#define N_THREADS_PER_BLOCK 64
 
 __global__ void commitMatrixMultiplication(
     const int nS,
@@ -118,71 +118,155 @@ __global__ void commitMatrixMultiplication(
     const uint32_t* ecvDevice, const uint16_t* ecoDevice, const int nT,const int nE,
     const uint32_t* isovDevice, const int nI,
     const float* wmrSFPDevice, const float* wmhSFPDevice, const float* isoSFPDevice,const int ndirs,
-    const int* icIndexesDevice, const int* ecIndexesDevice,
+    const int* icIndexesDevice, const int* ecIndexesDevice, const int* voxelsIndexesDevice,const int* sampleIndexesDevice,
     const float* xDevice,
     float* yDevice
 )
 {
-    __shared__ float voxelAccumulator[SAMPLE_TILE_WIDTH];
+    const unsigned M = nV*nS;
+    const unsigned totalTiles = 1+((M-1)/N_BLOCKS);
 
-    const int TOTAL_SAMPLE_TILES = 1+((nS-1)/SAMPLE_TILE_WIDTH);
-
-    const int TOTAL_VOXEL_TILES = 1+((nV-1)/VOXEL_TILE_WIDTH);
-
-    for(int voxelTile = 0 ; voxelTile < TOTAL_VOXEL_TILES ; voxelTile++)
+    for(unsigned TILE = 0; TILE < totalTiles; TILE++)
     {
-        const int voxel = voxelTile * VOXEL_TILE_WIDTH + blockIdx.x;
+        const unsigned yIndex = TILE * N_BLOCKS + blockIdx.x;
 
-        if(voxel < nV)
+        if(yIndex >= M)
         {
-            const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
-            const int endIcSegment   = icIndexesDevice[voxel];
-
-            const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-            const int endEcSegment   = ecIndexesDevice[voxel];
-
-            for(int sampleTile = 0; sampleTile < TOTAL_SAMPLE_TILES; sampleTile++)
-            {
-                const int sampleIndex = sampleTile * SAMPLE_TILE_WIDTH + threadIdx.x;
-
-                if(sampleIndex < nS)
-                {
-                    voxelAccumulator[threadIdx.x] = 0.0f;
-                    
-                    /* IC */
-                    for (int radii = 0; radii < nR; radii++)
-                    {
-                        int lookupTableOffset = radii*ndirs*nS;
-            
-                        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
-                        {
-                            voxelAccumulator[threadIdx.x] += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * nS + sampleIndex]*iclDevice[icsegment];
-                        }
-                    }
-                    
-                    /* EC */
-                    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
-                    {
-                        int lookupTableOffset = tortuosity*ndirs*nS;
-                        int xIndex = nR*nF + tortuosity*nE + startEcSegment;
-
-                        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
-                        {
-                            voxelAccumulator[threadIdx.x] += xDevice[xIndex]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * nS + sampleIndex];
-                            xIndex++;
-                        }
-                    }
-                    
-                    /* ISO */
-                    for (int iso = 0; iso < nI; iso++)
-                    {
-                        voxelAccumulator[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sampleIndex];
-                    }
-
-                    yDevice[voxel * nS + sampleIndex] = voxelAccumulator[threadIdx.x];
-                }
-            }
+            return;
         }
+
+        const unsigned voxel  = voxelsIndexesDevice[yIndex];
+        const unsigned sample = sampleIndexesDevice[yIndex];
+
+        __shared__ float reductBuffer[N_THREADS_PER_BLOCK];
+        __shared__ float result;
+        
+        const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
+        const int endIcSegment   = icIndexesDevice[voxel];
+        const int totalIcSegments = endIcSegment - startIcSegment;
+
+        const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
+        const int endEcSegment   = ecIndexesDevice[voxel];
+        const int totalEcSegments = endEcSegment - startEcSegment;
+
+        if(threadIdx.x == 0)
+        {
+            result = 0.0f;
+        }
+
+        /* IC SECTION */
+        for(unsigned ICTILE = 0; ICTILE < 1+((totalIcSegments-1)/N_THREADS_PER_BLOCK);ICTILE++)
+        {
+            const unsigned icSegIndex = startIcSegment + ICTILE * N_THREADS_PER_BLOCK + threadIdx.x;
+
+            reductBuffer[threadIdx.x] = 0.0f;
+            __syncthreads();
+
+            if(icSegIndex >= endIcSegment)
+            {
+                return;
+            }
+
+            for(int radii = 0; radii < nR; radii++)
+            {
+                reductBuffer[threadIdx.x] += xDevice[icfDevice[icSegIndex] + radii]*wmrSFPDevice[radii*ndirs*nS + icoDevice[icSegIndex] * nS + sample]*iclDevice[icSegIndex];
+            }
+
+            /* REDUCTION */
+            for(unsigned i = 1u; i < N_THREADS_PER_BLOCK ; i*=2u)
+            {
+                const unsigned index = threadIdx.x*i*2;
+
+                if(index < N_THREADS_PER_BLOCK)
+                {
+                    reductBuffer[index] += reductBuffer[index + i];
+                } 
+                __syncthreads();
+            }
+
+            if(threadIdx.x == 0)
+            {
+                result += reductBuffer[0];
+            } 
+            __syncthreads();
+        }
+
+        /* EC SECTION */
+        for(unsigned ECTILE = 0; ECTILE <  1+((totalEcSegments-1)/N_THREADS_PER_BLOCK);ECTILE++)
+        {
+            const unsigned ecSegIndex = startEcSegment + ECTILE * N_THREADS_PER_BLOCK + threadIdx.x;
+
+            reductBuffer[threadIdx.x] = 0.0f;
+            __syncthreads();
+
+            if(ecSegIndex >= endEcSegment)
+            {
+                return;
+            }
+
+            for(int tortuosity = 0; tortuosity < nT; tortuosity++)
+            {
+                unsigned xIndex = nR*nF + tortuosity*nE + startEcSegment + threadIdx.x;
+                reductBuffer[threadIdx.x] += xDevice[xIndex]*wmhSFPDevice[tortuosity*ndirs*nS + ecoDevice[ecSegIndex] * nS + sample];
+            }
+
+            /* REDUCTION */
+            for(unsigned i = 1u; i < N_THREADS_PER_BLOCK ; i*=2u)
+            {
+                const unsigned index = threadIdx.x*i*2;
+
+                if(index < N_THREADS_PER_BLOCK)
+                {
+                    reductBuffer[index] += reductBuffer[index + i];
+                } 
+                __syncthreads();
+            }
+
+            if(threadIdx.x == 0)
+            {
+                result += reductBuffer[0];
+            } 
+            __syncthreads();
+        }
+
+        /* ISO SECTION */
+        for(unsigned ISOTILE = 0; ISOTILE <  1+((nI-1)/N_THREADS_PER_BLOCK);ISOTILE++)
+        {
+            const int isoIndex = ISOTILE * N_THREADS_PER_BLOCK + threadIdx.x;
+
+            reductBuffer[threadIdx.x] = 0.0f;
+            __syncthreads();
+
+            if(isoIndex >= nI)
+            {
+                return;
+            }
+
+            for (int iso = 0; iso < nI; iso++)
+            {
+                reductBuffer[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
+            }
+
+            /* REDUCTION */
+            for(unsigned i = 1u; i < N_THREADS_PER_BLOCK ; i*=2u)
+            {
+                const unsigned index = threadIdx.x*i*2;
+
+                if(index < N_THREADS_PER_BLOCK)
+                {
+                    reductBuffer[index] += reductBuffer[index + i];
+                } 
+                __syncthreads();
+            }
+
+            if(threadIdx.x == 0)
+            {
+                result += reductBuffer[0];
+            } 
+            __syncthreads();
+        }
+
+        yDevice[yIndex] = result;
     }
 }
 
@@ -239,13 +323,17 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(isoSFPDevice,isoSFP.data(),sizeof(float)*isoSFP.size(),cudaMemcpyHostToDevice))
 
     /* HELPER ARRAYS */
-    int* icIndexesDevice;int* ecIndexesDevice;
+    int* icIndexesDevice;int* ecIndexesDevice;int* voxelsIndexesDevice;int* sampleIndexesDevice;
 
     CUDAERRCHECK(cudaMalloc(&icIndexesDevice,sizeof(int)*icIndexes.size()))
     CUDAERRCHECK(cudaMalloc(&ecIndexesDevice,sizeof(int)*ecIndexes.size()))
+    CUDAERRCHECK(cudaMalloc(&voxelsIndexesDevice,sizeof(int)*voxelsIndexes.size()))
+    CUDAERRCHECK(cudaMalloc(&sampleIndexesDevice,sizeof(int)*sampleIndexes.size()))
 
     CUDAERRCHECK(cudaMemcpy(icIndexesDevice,icIndexes.data(),sizeof(int)*icIndexes.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(ecIndexesDevice,ecIndexes.data(),sizeof(int)*ecIndexes.size(),cudaMemcpyHostToDevice))
+    CUDAERRCHECK(cudaMemcpy(voxelsIndexesDevice,voxelsIndexes.data(),sizeof(int)*voxelsIndexes.size(),cudaMemcpyHostToDevice))
+    CUDAERRCHECK(cudaMemcpy(sampleIndexesDevice,sampleIndexes.data(),sizeof(int)*sampleIndexes.size(),cudaMemcpyHostToDevice))
 
     /* INPUT */
     float* xDevice;
@@ -262,8 +350,8 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = VOXEL_TILE_WIDTH;
-    const int threadsPerBlock = SAMPLE_TILE_WIDTH;
+    const int blocks = N_BLOCKS;
+    const int threadsPerBlock = N_THREADS_PER_BLOCK;
 
     dim3 dimGrid(blocks,1,1);
     dim3 dimBlock(threadsPerBlock,1,1);
@@ -276,7 +364,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
         ecvDevice,ecoDevice,_nT,_nE,
         isovDevice,_nI,
         wmrSFPDevice,wmhSFPDevice,isoSFPDevice,_ndirs,
-        icIndexesDevice,ecIndexesDevice,
+        icIndexesDevice,ecIndexesDevice,voxelsIndexesDevice,sampleIndexesDevice,
         xDevice,
         yDevice
     );
@@ -291,7 +379,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaFree(ecvDevice);cudaFree(ecoDevice);
     cudaFree(isovDevice);
     cudaFree(wmrSFPDevice);cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
-    cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);
+    cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);cudaFree(voxelsIndexesDevice);cudaFree(sampleIndexesDevice);
 
     cudaEventRecord(totalStop);
 

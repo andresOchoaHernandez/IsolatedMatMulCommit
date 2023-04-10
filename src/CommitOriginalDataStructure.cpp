@@ -35,8 +35,20 @@ isoThreads(_threads + 1),
 input(N),
 output(M),
 icIndexes(_nV,0),
-ecIndexes(_nV,0)
-{}
+ecIndexes(_nV,0),
+voxelsIndexes(M),
+sampleIndexes(M)
+{
+    for(int voxel = 0; voxel < _nV; voxel++)
+    {
+        #pragma omp parallel for
+        for(int sample = 0; sample < _nS; sample++)
+        {
+            voxelsIndexes[voxel*_nS+sample] = voxel;
+            sampleIndexes[voxel*_nS+sample] = sample;
+        }
+    }
+}
 
 template<typename T>
 void loadArray(const std::string& path,std::vector<T>& array)
