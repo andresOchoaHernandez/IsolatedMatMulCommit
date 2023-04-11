@@ -108,8 +108,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define SAMPLE_TILE_WIDTH (64 * 2)
-#define VOXEL_TILE_WIDTH (480 * 15)
+#define SAMPLE_TILE_WIDTH (64*2)
+#define VOXEL_TILE_WIDTH (480*200)
 
 __global__ void commitMatrixMultiplication(
     int nS,
