@@ -164,7 +164,7 @@ __global__ void commitMatrixMultiplication(
 
             if(elementIndex >= totalElementsToElaborate)
             {
-                return;
+                return; //TODO: what if the next tile has more elems to elaborate than the previous one?
             }
 
             reductBuffer[threadIdx.x] = 0.0f;
