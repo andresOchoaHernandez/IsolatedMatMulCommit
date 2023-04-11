@@ -191,6 +191,12 @@ __global__ void commitMatrixMultiplication(
             __syncthreads();
         }
 
+        /* DEBUG */
+        if( threadIdx.x == 0 && blockIdx.x == 0 && TILE == 0)
+        {
+            printf("%f\n",result);
+        }
+
         /* EC SECTION */
         for(unsigned ECTILE = 0; ECTILE <  1+((totalEcSegments-1)/N_THREADS_PER_BLOCK);ECTILE++)
         {
