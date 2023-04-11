@@ -108,8 +108,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define N_BLOCKS (50000)
-#define N_THREADS_PER_BLOCK (64)
+#define N_BLOCKS (480 * 1)
+#define N_THREADS_PER_BLOCK (64 * 1)
 
 __global__ void commitMatrixMultiplication(
     const int nS,
@@ -162,11 +162,6 @@ __global__ void commitMatrixMultiplication(
         {
             const int elementIndex = HORIZONTAL_TILE * N_THREADS_PER_BLOCK + threadIdx.x;
 
-            if(elementIndex >= totalElementsToElaborate)
-            {
-                return; //TODO: what if the next tile has more elems to elaborate than the previous one?
-            }
-
             reductBuffer[threadIdx.x] = 0.0f;
             __syncthreads();
 
@@ -194,7 +189,7 @@ __global__ void commitMatrixMultiplication(
                 }
             }
             /* ISO */
-            else
+            else if (elementIndex >= (totalIcSegments+totalEcSegments) && elementIndex < (totalIcSegments+totalEcSegments)+nI)
             {
                 const int iso = elementIndex - (totalIcSegments + totalEcSegments);
                 reductBuffer[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
