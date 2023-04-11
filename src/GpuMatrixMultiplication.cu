@@ -108,8 +108,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define N_BLOCKS (480*15)
-#define N_THREADS_PER_BLOCK (64*2)
+#define N_BLOCKS (50000)
+#define N_THREADS_PER_BLOCK (64)
 
 __global__ void commitMatrixMultiplication(
     const int nS,
@@ -196,10 +196,8 @@ __global__ void commitMatrixMultiplication(
             /* ISO */
             else
             {
-                for (int iso = 0; iso < nI; iso++)
-                {
-                    reductBuffer[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
-                }
+                const int iso = elementIndex - (totalIcSegments + totalEcSegments);
+                reductBuffer[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
             }
             __syncthreads();
 
