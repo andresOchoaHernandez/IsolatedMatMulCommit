@@ -137,40 +137,71 @@ __global__ void commitMatrixMultiplication(
 
         const unsigned voxel  = voxelsIndexesDevice[yIndex];
         const unsigned sample = sampleIndexesDevice[yIndex];
+        
+        const int startIcSegment  = (voxel==0)?0:icIndexesDevice[voxel-1];
+        const int endIcSegment    = icIndexesDevice[voxel];
+        const int totalIcSegments = endIcSegment - startIcSegment;
+
+        const int startEcSegment  = (voxel==0)?0:ecIndexesDevice[voxel-1];
+        const int endEcSegment    = ecIndexesDevice[voxel];
+        const int totalEcSegments = endEcSegment - startEcSegment;
+        
+        const int totalElementsToElaborate = totalIcSegments + totalEcSegments + nI;
 
         __shared__ float reductBuffer[N_THREADS_PER_BLOCK];
         __shared__ float result;
-        
-        const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
-        const int endIcSegment   = icIndexesDevice[voxel];
-        const int totalIcSegments = endIcSegment - startIcSegment;
 
-        const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-        const int endEcSegment   = ecIndexesDevice[voxel];
-        const int totalEcSegments = endEcSegment - startEcSegment;
+        reductBuffer[threadIdx.x] = 0.0f;
 
         if(threadIdx.x == 0)
         {
             result = 0.0f;
         }
 
-        /* IC SECTION */
-        for(unsigned ICTILE = 0; ICTILE < 1+((totalIcSegments-1)/N_THREADS_PER_BLOCK);ICTILE++)
+        for(unsigned HORIZONTAL_TILE = 0; HORIZONTAL_TILE < 1+((totalElementsToElaborate-1)/N_THREADS_PER_BLOCK);HORIZONTAL_TILE++)
         {
-            const unsigned icSegIndex = startIcSegment + ICTILE * N_THREADS_PER_BLOCK + threadIdx.x;
+            const int elementIndex = HORIZONTAL_TILE * N_THREADS_PER_BLOCK + threadIdx.x;
 
-            reductBuffer[threadIdx.x] = 0.0f;
-            __syncthreads();
-
-            if(icSegIndex >= endIcSegment)
+            if(elementIndex >= totalElementsToElaborate)
             {
                 return;
             }
 
-            for(int radii = 0; radii < nR; radii++)
+            reductBuffer[threadIdx.x] = 0.0f;
+            __syncthreads();
+
+            /* IC */
+            if(elementIndex < totalIcSegments)
             {
-                reductBuffer[threadIdx.x] += xDevice[icfDevice[icSegIndex] + radii]*wmrSFPDevice[radii*ndirs*nS + icoDevice[icSegIndex] * nS + sample]*iclDevice[icSegIndex];
+                const int icSegIndex = startIcSegment + elementIndex;
+
+                for(int radii = 0; radii < nR; radii++)
+                {
+                    reductBuffer[threadIdx.x] += xDevice[icfDevice[icSegIndex] + radii]*wmrSFPDevice[radii*ndirs*nS + icoDevice[icSegIndex] * nS + sample]*iclDevice[icSegIndex];
+                }
             }
+            /* EC */
+            else if(elementIndex >= totalIcSegments && elementIndex < (totalIcSegments+totalEcSegments))
+            {
+                const int offset = elementIndex - totalIcSegments;
+
+                const int ecSegIndex = startEcSegment + offset;
+
+                for(int tortuosity = 0; tortuosity < nT; tortuosity++)
+                {
+                    unsigned xIndex = nR*nF + tortuosity*nE + ecSegIndex;
+                    reductBuffer[threadIdx.x] += xDevice[xIndex]*wmhSFPDevice[tortuosity*ndirs*nS + ecoDevice[ecSegIndex] * nS + sample];
+                }
+            }
+            /* ISO */
+            else
+            {
+                for (int iso = 0; iso < nI; iso++)
+                {
+                    reductBuffer[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
+                }
+            }
+            __syncthreads();
 
             /* REDUCTION */
             for(unsigned i = 1u; i < N_THREADS_PER_BLOCK ; i*=2u)
@@ -191,88 +222,11 @@ __global__ void commitMatrixMultiplication(
             __syncthreads();
         }
 
-        /* DEBUG */
-        if( threadIdx.x == 0 && blockIdx.x == 0 && TILE == 0)
+        if(threadIdx.x == 0)
         {
-            printf("%f\n",result);
+            yDevice[yIndex] = result;
         }
-
-        /* EC SECTION */
-        for(unsigned ECTILE = 0; ECTILE <  1+((totalEcSegments-1)/N_THREADS_PER_BLOCK);ECTILE++)
-        {
-            const unsigned ecSegIndex = startEcSegment + ECTILE * N_THREADS_PER_BLOCK + threadIdx.x;
-
-            reductBuffer[threadIdx.x] = 0.0f;
-            __syncthreads();
-
-            if(ecSegIndex >= endEcSegment)
-            {
-                return;
-            }
-
-            for(int tortuosity = 0; tortuosity < nT; tortuosity++)
-            {
-                unsigned xIndex = nR*nF + tortuosity*nE + startEcSegment + threadIdx.x;
-                reductBuffer[threadIdx.x] += xDevice[xIndex]*wmhSFPDevice[tortuosity*ndirs*nS + ecoDevice[ecSegIndex] * nS + sample];
-            }
-
-            /* REDUCTION */
-            for(unsigned i = 1u; i < N_THREADS_PER_BLOCK ; i*=2u)
-            {
-                const unsigned index = threadIdx.x*i*2;
-
-                if(index < N_THREADS_PER_BLOCK)
-                {
-                    reductBuffer[index] += reductBuffer[index + i];
-                } 
-                __syncthreads();
-            }
-
-            if(threadIdx.x == 0)
-            {
-                result += reductBuffer[0];
-            } 
-            __syncthreads();
-        }
-
-        /* ISO SECTION */
-        for(unsigned ISOTILE = 0; ISOTILE <  1+((nI-1)/N_THREADS_PER_BLOCK);ISOTILE++)
-        {
-            const int isoIndex = ISOTILE * N_THREADS_PER_BLOCK + threadIdx.x;
-
-            reductBuffer[threadIdx.x] = 0.0f;
-            __syncthreads();
-
-            if(isoIndex >= nI)
-            {
-                return;
-            }
-
-            for (int iso = 0; iso < nI; iso++)
-            {
-                reductBuffer[threadIdx.x] += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
-            }
-
-            /* REDUCTION */
-            for(unsigned i = 1u; i < N_THREADS_PER_BLOCK ; i*=2u)
-            {
-                const unsigned index = threadIdx.x*i*2;
-
-                if(index < N_THREADS_PER_BLOCK)
-                {
-                    reductBuffer[index] += reductBuffer[index + i];
-                } 
-                __syncthreads();
-            }
-
-            if(threadIdx.x == 0)
-            {
-                result += reductBuffer[0];
-            } 
-            __syncthreads();
-        }
-
-        yDevice[yIndex] = result;
+        __syncthreads();
     }
 }
 
