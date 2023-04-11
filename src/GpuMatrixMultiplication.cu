@@ -108,8 +108,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define N_BLOCKS (480 * 1)
-#define N_THREADS_PER_BLOCK (64 * 1)
+#define N_BLOCKS (480 * 30)
+#define N_THREADS_PER_BLOCK (64 * 2)
 
 __global__ void commitMatrixMultiplication(
     const int nS,
@@ -125,6 +125,9 @@ __global__ void commitMatrixMultiplication(
 {
     const unsigned M = nV*nS;
     const unsigned totalTiles = 1+((M-1)/N_BLOCKS);
+
+    __shared__ float reductBuffer[N_THREADS_PER_BLOCK];
+    __shared__ float result;
 
     for(unsigned TILE = 0; TILE < totalTiles; TILE++)
     {
@@ -147,9 +150,6 @@ __global__ void commitMatrixMultiplication(
         const int totalEcSegments = endEcSegment - startEcSegment;
         
         const int totalElementsToElaborate = totalIcSegments + totalEcSegments + nI;
-
-        __shared__ float reductBuffer[N_THREADS_PER_BLOCK];
-        __shared__ float result;
 
         reductBuffer[threadIdx.x] = 0.0f;
 
