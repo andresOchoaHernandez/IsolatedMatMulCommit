@@ -108,9 +108,6 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-#define SAMPLE_TILE_WIDTH (100)
-#define VOXEL_TILE_WIDTH (53008)
-
 __global__ void commitMatrixMultiplication(
     int nS,
     int nV,
@@ -123,61 +120,47 @@ __global__ void commitMatrixMultiplication(
     float* yDevice
 )
 {
-    const int TOTAL_SAMPLE_TILES = 1+((nS-1)/SAMPLE_TILE_WIDTH);
+    const int voxel  = blockIdx.x;
+    const int sample = threadIdx.x;
 
-    const int TOTAL_VOXEL_TILES = 1+((nV-1)/VOXEL_TILE_WIDTH);
+    /* IC SEGMENTS TO ELABORATE */
+    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
+    const int endIcSegment   = icIndexesDevice[voxel];
 
-    for(int voxelTile = 0 ; voxelTile < TOTAL_VOXEL_TILES ; voxelTile++)
+    /* EC SEGMENTS TO ELABORATE */
+    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
+    const int endEcSegment   = ecIndexesDevice[voxel];
+
+    float accumulator = 0.0f;
+
+    /* IC */
+    for (int radii = 0; radii < nR; radii++)
     {
-        const int voxel = voxelTile * VOXEL_TILE_WIDTH + blockIdx.x;
+        int lookupTableOffset = radii*ndirs*nS;
 
-        if(voxel < nV)
+        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
         {
-            for(int sampleTile = 0; sampleTile < TOTAL_SAMPLE_TILES; sampleTile++)
-            {
-                const int sampleIndex = sampleTile * SAMPLE_TILE_WIDTH + threadIdx.x;
-
-                if(sampleIndex < nS)
-                {
-                    float accumulator = 0.0f;
-
-                    /* IC */
-                    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
-                    const int endIcSegment   = icIndexesDevice[voxel];
-
-                    for (int radii = 0; radii < nR; radii++)
-                    {
-                        int lookupTableOffset = radii*ndirs*nS;
-            
-                        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
-                        {
-                            accumulator += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * nS + sampleIndex]*iclDevice[icsegment];
-                        }
-                    }
-                    /* EC */
-                    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-                    const int endEcSegment   = ecIndexesDevice[voxel];
-                    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
-                    {
-                        int lookupTableOffset = tortuosity*ndirs*nS;
-                        int xIndex = nR*nF + tortuosity*nE + startEcSegment;
-
-                        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
-                        {
-                            accumulator += xDevice[xIndex]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * nS + sampleIndex];
-                            xIndex++;
-                        }
-                    }
-                    /* ISO */
-                    for (int iso = 0; iso < nI; iso++)
-                    {
-                        accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sampleIndex];
-                    }
-                    yDevice[voxel * nS + sampleIndex] = accumulator;
-                }
-            }
+            accumulator += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * nS + sample]*iclDevice[icsegment];
         }
     }
+    /* EC */
+    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
+    {
+        int lookupTableOffset = tortuosity*ndirs*nS;
+        int xIndex = nR*nF + tortuosity*nE + startEcSegment;
+
+        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
+        {
+            accumulator += xDevice[xIndex]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * nS + sample];
+            xIndex++;
+        }
+    }
+    /* ISO */
+    for (int iso = 0; iso < nI; iso++)
+    {
+        accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
+    }
+    yDevice[voxel * nS + sample] = accumulator;
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
@@ -256,8 +239,8 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = VOXEL_TILE_WIDTH;
-    const int threadsPerBlock = SAMPLE_TILE_WIDTH;
+    const int blocks = _nV;
+    const int threadsPerBlock = _nS;
 
     dim3 dimGrid(blocks,1,1);
     dim3 dimBlock(threadsPerBlock,1,1);
