@@ -132,7 +132,7 @@ __global__ void commitMatrixMultiplication(
     const int endEcSegment   = ecIndexesDevice[voxel];
 
     float accumulator = 0.0f;
-
+    
     /* IC */
     for (int radii = 0; radii < nR; radii++)
     {
