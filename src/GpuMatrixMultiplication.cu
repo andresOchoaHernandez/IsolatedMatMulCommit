@@ -108,63 +108,160 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
-__global__ void commitMatrixMultiplication(
-    int nS,
-    int nV,
+#define THREADS_PER_BLOCK 100
+#define BLOCKS (480*100)
+
+__global__ void icMatrixMultiplication(
+    int nS,int nV,
     uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
-    uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
-    uint32_t* isovDevice, int nI,
-    float* wmrSFPDevice, float* wmhSFPDevice, float* isoSFPDevice,int ndirs,
-    int* icIndexesDevice, int* ecIndexesDevice,
+    float* wmrSFPDevice, int ndirs,
+    int* icIndexesDevice,
     float* xDevice,
     float* yDevice
 )
 {
-    const int voxel  = blockIdx.x;
-    const int sample = threadIdx.x;
-
-    /* IC SEGMENTS TO ELABORATE */
-    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
-    const int endIcSegment   = icIndexesDevice[voxel];
-
-    /* EC SEGMENTS TO ELABORATE */
-    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-    const int endEcSegment   = ecIndexesDevice[voxel];
+    const int startIcSegment = (blockIdx.x == 0)?0:icIndexesDevice[blockIdx.x-1];
+    const int endIcSegment   = icIndexesDevice[blockIdx.x];
 
     float accumulator = 0.0f;
-    
-    /* IC */
-    for (int radii = 0; radii < nR; radii++)
-    {
-        int lookupTableOffset = radii*ndirs*nS;
 
-        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
-        {
-            accumulator += xDevice[icfDevice[icsegment] + radii]*wmrSFPDevice[lookupTableOffset + icoDevice[icsegment] * nS + sample]*iclDevice[icsegment];
-        }
-    }
-    /* EC */
-    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
+    for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
     {
-        int lookupTableOffset = tortuosity*ndirs*nS;
-        int xIndex = nR*nF + tortuosity*nE + startEcSegment;
+        int fiber       = icfDevice[icsegment];
+        int voxel       = icvDevice[icsegment];
+        int orientation = icoDevice[icsegment];
+        float length    = iclDevice[icsegment];
 
-        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
+        for (int radii = 0; radii < nR; radii++)
         {
-            accumulator += xDevice[xIndex]*wmhSFPDevice[lookupTableOffset + ecoDevice[ecsegment] * nS + sample];
-            xIndex++;
+            accumulator += xDevice[fiber + radii]*wmrSFPDevice[radii*ndirs*nS + orientation*nS + threadIdx.x]*length;
         }
+        
+        yDevice[voxel * nS + threadIdx.x] = accumulator;
     }
-    /* ISO */
-    for (int iso = 0; iso < nI; iso++)
+}
+
+__global__ void ecMatrixMultiplication(
+    int nS,int nV,int nR,int nF,
+    uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
+    float* wmhSFPDevice,int ndirs,
+    int* ecIndexesDevice,
+    float* xDevice,
+    float* yDevice
+)
+{
+    const int startEcSegment = (blockIdx.x == 0)?0:ecIndexesDevice[blockIdx.x-1];
+    const int endEcSegment   = ecIndexesDevice[blockIdx.x];
+
+    float accumulator = 0.0f;
+
+    int xIndex = nR*nF + startEcSegment;
+    for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
     {
-        accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + sample];
+        int voxel       = ecvDevice[ecsegment];
+        int orientation = ecoDevice[ecsegment];
+
+        for (int tortuosity = 0; tortuosity < nT; tortuosity++)
+        {
+           accumulator += xDevice[xIndex + nE*nT]*wmhSFPDevice[tortuosity*ndirs*nS + orientation * nS + threadIdx.x];
+        }
+
+        xIndex++;
+        yDevice[voxel * nS + threadIdx.x] = accumulator;
     }
-    yDevice[voxel * nS + sample] = accumulator;
+}
+
+__global__ void isoMatrixMultiplication(
+    int nS,int nV,int nR,int nF,int nE,int nT,
+    uint32_t* isovDevice, int nI,
+    float* isoSFPDevice,int ndirs,
+    int* isoIndexesDevice,
+    float* xDevice,
+    float* yDevice
+)
+{
+    const int startIsoSegment = (blockIdx.x == 0)?0:isoIndexesDevice[blockIdx.x-1];
+    const int endIsoSegment   = isoIndexesDevice[blockIdx.x];
+
+    float accumulator = 0.0f;
+
+    for(int isosegment = startIsoSegment; isosegment < endIsoSegment; isosegment++)
+    {
+        int voxel = isovDevice[isosegment];
+
+        for (int iso = 0; iso < nI; iso++)
+        {
+            accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + threadIdx.x];
+        }
+
+        yDevice[voxel * nS + threadIdx.x] = accumulator;
+    }
+}
+
+void CommitOriginalDataStructure::generateHelperVectors(std::vector<int>& icIndexes,std::vector<int>& ecIndexes,std::vector<int>& isoIndexes)
+{
+    const int icStride  = _n/BLOCKS;
+    const int ecStride  = _nE/BLOCKS;
+    const int isoStride = _nV/BLOCKS;
+
+    for(int i = 0; i < BLOCKS - 1;i++)
+    {
+        /* IC */
+        int currIndex = (i+1)*icStride;
+        int currVoxel  = icv[currIndex];
+        int leftVoxel  = icv[currIndex-1];
+
+        if (leftVoxel != currVoxel)
+        {
+            icIndexes[i] = currIndex;
+        }
+        else if(leftVoxel == currVoxel)
+        {
+            while(icv[currIndex] == currVoxel)
+            {
+                currIndex++;                
+            }
+
+            icIndexes[i] = currIndex;
+        }
+
+        /* EC */
+        currIndex = (i+1)*ecStride;
+        currVoxel  = ecv[currIndex];
+        leftVoxel  = ecv[currIndex-1];
+        if (leftVoxel != currVoxel)
+        {
+            ecIndexes[i] = currIndex;
+        }
+        else if(leftVoxel == currVoxel)
+        {
+            while(ecv[currIndex] == currVoxel)
+            {
+                currIndex++;                
+            }
+
+            ecIndexes[i] = currIndex;
+        }
+
+        /* ISO */
+        isoIndexes[i] = (i+1)*isoStride;
+    }
+
+    icIndexes[BLOCKS-1] = _n;
+    ecIndexes[BLOCKS-1] = _nE;
+    isoIndexes[BLOCKS-1] = _nV;
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
 {
+    /* GENERATE HELPER VECTORS */
+    std::vector<int> icIndexes(BLOCKS,0);
+    std::vector<int> ecIndexes(BLOCKS,0);
+    std::vector<int> isoIndexes(BLOCKS,0);
+
+    generateHelperVectors(icIndexes,ecIndexes,isoIndexes);
+
+    /* CREATING EVENTS HANDLERS TO MEASURE EXECUTION TIME */
     cudaEvent_t totalStart,totalStop;
     cudaEventCreate(&totalStart);
     cudaEventCreate(&totalStop);
@@ -216,13 +313,15 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(isoSFPDevice,isoSFP.data(),sizeof(float)*isoSFP.size(),cudaMemcpyHostToDevice))
 
     /* HELPER ARRAYS */
-    int* icIndexesDevice;int* ecIndexesDevice;
+    int* icIndexesDevice;int* ecIndexesDevice;int* isoIndexesDevice;
 
     CUDAERRCHECK(cudaMalloc(&icIndexesDevice,sizeof(int)*icIndexes.size()))
     CUDAERRCHECK(cudaMalloc(&ecIndexesDevice,sizeof(int)*ecIndexes.size()))
+    CUDAERRCHECK(cudaMalloc(&isoIndexesDevice,sizeof(int)*isoIndexes.size()))
 
     CUDAERRCHECK(cudaMemcpy(icIndexesDevice,icIndexes.data(),sizeof(int)*icIndexes.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(ecIndexesDevice,ecIndexes.data(),sizeof(int)*ecIndexes.size(),cudaMemcpyHostToDevice))
+    CUDAERRCHECK(cudaMemcpy(isoIndexesDevice,isoIndexes.data(),sizeof(int)*isoIndexes.size(),cudaMemcpyHostToDevice))
 
     /* INPUT */
     float* xDevice;
@@ -239,24 +338,15 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
-    const int blocks = _nV;
-    const int threadsPerBlock = _nS;
-
-    dim3 dimGrid(blocks,1,1);
-    dim3 dimBlock(threadsPerBlock,1,1);
+    dim3 dimGrid(BLOCKS,1,1);
+    dim3 dimBlock(THREADS_PER_BLOCK,1,1);
 
     cudaEventRecord(kernelStart);
-    commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
-        _nS,
-        _nV,
-        icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
-        ecvDevice,ecoDevice,_nT,_nE,
-        isovDevice,_nI,
-        wmrSFPDevice,wmhSFPDevice,isoSFPDevice,_ndirs,
-        icIndexesDevice,ecIndexesDevice,
-        xDevice,
-        yDevice
-    );
+
+    icMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,wmrSFPDevice,_ndirs,icIndexesDevice,xDevice,yDevice);
+    //ecMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,ecvDevice,ecoDevice,_nT,_nE,wmhSFPDevice,_ndirs,ecIndexesDevice,xDevice,yDevice);
+    //isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,isoSFPDevice,_ndirs,isoIndexesDevice,xDevice,yDevice);
+    
     cudaEventRecord(kernelStop);
 
     /* COPYING BACK THE RESULT */
@@ -268,7 +358,6 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaFree(ecvDevice);cudaFree(ecoDevice);
     cudaFree(isovDevice);
     cudaFree(wmrSFPDevice);cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
-    cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);
 
     cudaEventRecord(totalStop);
 

@@ -33,9 +33,7 @@ icThreads(_threads + 1),
 ecThreads(_threads + 1),
 isoThreads(_threads + 1),
 input(N),
-output(M),
-icIndexes(_nV,0),
-ecIndexes(_nV,0)
+output(M)
 {}
 
 template<typename T>
@@ -310,37 +308,4 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
     printResult("Threaded matrix multiplication",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
-}
-
-void CommitOriginalDataStructure::generateIndexesVector()
-{
-    if(_n > 0 && _nR > 0)
-    {
-        uint32_t voxel = icv[0];
-        for(int segment = 0; segment < _n; segment++)
-        {
-            if(icv[segment] != voxel)
-            {
-                icIndexes[voxel] = segment;
-                voxel = icv[segment];
-            }
-        }
-
-        icIndexes[_nV-1] =_n;
-    }
-
-    if(_nE > 0 && _nT > 0)
-    {
-        uint32_t voxel = ecv[0];
-        for(int segment = 0; segment < _nE; segment++)
-        {
-            if(ecv[segment] != voxel)
-            {
-                ecIndexes[voxel] = segment;
-                voxel = ecv[segment];
-            }
-        }
-
-        ecIndexes[_nV-1] =_nE;
-    }
 }
