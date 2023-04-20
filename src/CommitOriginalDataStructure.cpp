@@ -312,40 +312,10 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
     printResult("Threaded matrix multiplication",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
 }
 
-void CommitOriginalDataStructure::orderByVoxel()
+void CommitOriginalDataStructure::generateIndexesVector()
 {
     if(_n > 0 && _nR > 0)
     {
-        struct IcSection
-        {
-            uint32_t fiber;
-            uint32_t voxel;
-            uint16_t orientation;
-            float    length;
-
-            bool operator<(const IcSection& other)
-            {
-                return (voxel == other.voxel)?(fiber == other.fiber)?orientation < other.orientation:fiber<other.fiber:(voxel < other.voxel);
-            }
-        };
-
-        std::vector<IcSection> icSegments;
-
-        for(int seg = 0; seg < _n; seg++)
-        {
-            icSegments.push_back({.fiber=icf[seg],.voxel=icv[seg],.orientation=ico[seg],.length=icl[seg]});
-        }
-
-        std::sort(icSegments.begin(),icSegments.end());
-
-        for(int seg = 0; seg < _n; seg++)
-        {
-            icf[seg] = icSegments[seg].fiber;
-            icv[seg] = icSegments[seg].voxel;
-            ico[seg] = icSegments[seg].orientation;
-            icl[seg] = icSegments[seg].length;
-        }
-
         uint32_t voxel = icv[0];
         for(int segment = 0; segment < _n; segment++)
         {
@@ -361,32 +331,6 @@ void CommitOriginalDataStructure::orderByVoxel()
 
     if(_nE > 0 && _nT > 0)
     {
-        struct EcSection
-        {
-            uint32_t voxel;
-            uint16_t orientation;
-
-            bool operator<(const EcSection& other)
-            {
-                return voxel < other.voxel;
-            }
-        };
-
-        std::vector<EcSection> ecSegments;
-
-        for(int seg = 0; seg < _nE; seg++)
-        {
-            ecSegments.push_back({.voxel=ecv[seg],.orientation=eco[seg]});
-        }
-
-        std::sort(ecSegments.begin(),ecSegments.end());
-
-        for(int seg = 0; seg < _nE; seg++)
-        {
-            ecv[seg] = ecSegments[seg].voxel;
-            eco[seg] = ecSegments[seg].orientation;
-        }
-
         uint32_t voxel = ecv[0];
         for(int segment = 0; segment < _nE; segment++)
         {
@@ -398,10 +342,5 @@ void CommitOriginalDataStructure::orderByVoxel()
         }
 
         ecIndexes[_nV-1] =_nE;
-    }
-
-    if(_nI > 0)
-    {
-        std::sort(isov.begin(),isov.end());    
     }
 }

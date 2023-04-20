@@ -24,7 +24,7 @@ int main()
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
 
-    originalDataStructure.orderByVoxel();
+    originalDataStructure.generateIndexesVector();
 
     originalDataStructure.gpuMatrixMultiplication();
 

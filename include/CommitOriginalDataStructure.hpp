@@ -64,7 +64,7 @@ class CommitOriginalDataStructure{
         void sequentialMatrixMultiplication();
         void threadedMatrixMultiplication();
 
-        void orderByVoxel();
+        void generateIndexesVector();
 
         void gpuMatrixMultiplication();
 };
