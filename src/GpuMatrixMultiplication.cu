@@ -129,8 +129,6 @@ __global__ void icMatrixMultiplication(
 
     float accumulator = 0.0f;
 
-    int previousVoxel = -1;
-
     for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
     {
         int fiber       = icfDevice[icsegment];
@@ -143,12 +141,7 @@ __global__ void icMatrixMultiplication(
             accumulator += xDevice[fiber + radii]*wmrSFPDevice[radii*ndirs*nS + orientation*nS + threadIdx.x]*length;
         }
 
-        if(previousVoxel != voxel)
-        {
-            yDevice[voxel * nS + threadIdx.x] += accumulator;
-        }
-
-        previousVoxel = voxel;
+        yDevice[voxel * nS + threadIdx.x] += accumulator;
     }
 }
 __global__ void ecMatrixMultiplication(
@@ -165,8 +158,6 @@ __global__ void ecMatrixMultiplication(
 
     float accumulator = 0.0f;
 
-    int previousVoxel = -1;
-
     int xIndex = nR*nF + startEcSegment;
     for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
     {
@@ -179,12 +170,7 @@ __global__ void ecMatrixMultiplication(
         }
         xIndex++;
         
-        if(previousVoxel != voxel)
-        {
-            yDevice[voxel * nS + threadIdx.x] += accumulator;
-        }
-
-        previousVoxel = voxel;
+        yDevice[voxel * nS + threadIdx.x] += accumulator;
     }
 }
 __global__ void isoMatrixMultiplication(
@@ -213,7 +199,7 @@ __global__ void isoMatrixMultiplication(
         }
         if(previousVoxel != voxel)
         {
-            yDevice[voxel * nS + threadIdx.x] += accumulator;
+            yDevice[voxel * nS + threadIdx.x] = accumulator;
         }
 
         previousVoxel = voxel;
@@ -367,7 +353,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     icMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,wmrSFPDevice,_ndirs,icIndexesDevice,xDevice,yDevice);
     ecMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,ecvDevice,ecoDevice,_nT,_nE,wmhSFPDevice,_ndirs,ecIndexesDevice,xDevice,yDevice);
-    isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,isoSFPDevice,_ndirs,isoIndexesDevice,xDevice,yDevice);
+    //isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,isoSFPDevice,_ndirs,isoIndexesDevice,xDevice,yDevice);
     
     cudaEventRecord(kernelStop);
 
