@@ -106,9 +106,6 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         n_sm : 30
                         -------------------------
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads
-ONLY IC: 1688.344360
-ONLY EC: 179347.906250
-ONLY ISO: 268786.000000
 */
 
 __global__ void icMatrixMultiplication(
