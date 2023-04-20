@@ -106,14 +106,10 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         n_sm : 30
                         -------------------------
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads
-
-after IC: 1688.344360
-after EC: 181036.250000
-after ISO: 449822.250000
+ONLY IC: 1688.344360
+ONLY EC: 179347.906250
+ONLY ISO: 268786.000000
 */
-
-#define THREADS_PER_BLOCK 100
-#define BLOCKS 4800
 
 __global__ void icMatrixMultiplication(
     int nS,int nV,
@@ -127,8 +123,6 @@ __global__ void icMatrixMultiplication(
     const int startIcSegment = (blockIdx.x == 0)?0:icIndexesDevice[blockIdx.x-1];
     const int endIcSegment   = icIndexesDevice[blockIdx.x];
 
-    float accumulator = 0.0f;
-
     for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
     {
         int fiber       = icfDevice[icsegment];
@@ -136,6 +130,7 @@ __global__ void icMatrixMultiplication(
         int orientation = icoDevice[icsegment];
         float length    = iclDevice[icsegment];
 
+        float accumulator = 0.0f;
         for (int radii = 0; radii < nR; radii++)
         {
             accumulator += xDevice[fiber + radii]*wmrSFPDevice[radii*ndirs*nS + orientation*nS + threadIdx.x]*length;
@@ -156,20 +151,19 @@ __global__ void ecMatrixMultiplication(
     const int startEcSegment = (blockIdx.x == 0)?0:ecIndexesDevice[blockIdx.x-1];
     const int endEcSegment   = ecIndexesDevice[blockIdx.x];
 
-    float accumulator = 0.0f;
-
     int xIndex = nR*nF + startEcSegment;
     for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
     {
         int voxel       = ecvDevice[ecsegment]; 
         int orientation = ecoDevice[ecsegment];
 
+        float accumulator = 0.0f;
         for (int tortuosity = 0; tortuosity < nT; tortuosity++)
         {
             accumulator += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[tortuosity*ndirs*nS + orientation * nS + threadIdx.x];
         }
         xIndex++;
-        
+
         yDevice[voxel * nS + threadIdx.x] += accumulator;
     }
 }
@@ -185,26 +179,21 @@ __global__ void isoMatrixMultiplication(
     const int startIsoSegment = (blockIdx.x == 0)?0:isoIndexesDevice[blockIdx.x-1];
     const int endIsoSegment   = isoIndexesDevice[blockIdx.x];
 
-    int previousVoxel = -1;
-
-    float accumulator = 0.0f;
-
     for(int isosegment = startIsoSegment; isosegment < endIsoSegment; isosegment++)
     {
         int voxel = isovDevice[isosegment];
 
+        float accumulator = 0.0f;
         for (int iso = 0; iso < nI; iso++)
         {
             accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + threadIdx.x];
         }
-        if(previousVoxel != voxel)
-        {
-            yDevice[voxel * nS + threadIdx.x] = accumulator;
-        }
-
-        previousVoxel = voxel;
+        yDevice[voxel * nS + threadIdx.x] += accumulator;
     }
 }
+
+#define THREADS_PER_BLOCK 100
+#define BLOCKS (480 * 100)
 
 void CommitOriginalDataStructure::generateHelperVectors(std::vector<int>& icIndexes,std::vector<int>& ecIndexes,std::vector<int>& isoIndexes)
 {
@@ -350,11 +339,9 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     dim3 dimBlock(THREADS_PER_BLOCK,1,1);
 
     cudaEventRecord(kernelStart);
-
     icMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,wmrSFPDevice,_ndirs,icIndexesDevice,xDevice,yDevice);
     ecMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,ecvDevice,ecoDevice,_nT,_nE,wmhSFPDevice,_ndirs,ecIndexesDevice,xDevice,yDevice);
-    //isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,isoSFPDevice,_ndirs,isoIndexesDevice,xDevice,yDevice);
-    
+    isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,isoSFPDevice,_ndirs,isoIndexesDevice,xDevice,yDevice);
     cudaEventRecord(kernelStop);
 
     /* COPYING BACK THE RESULT */
