@@ -108,6 +108,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads
 */
 
+#define THREADS_PER_BLOCK 100
+#define BLOCKS 960
+
 __global__ void icMatrixMultiplication(
     int nS,int nV,
     uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
@@ -188,9 +191,6 @@ __global__ void isoMatrixMultiplication(
         yDevice[voxel * nS + threadIdx.x] += accumulator;
     }
 }
-
-#define THREADS_PER_BLOCK 100
-#define BLOCKS (480 * 100)
 
 void CommitOriginalDataStructure::generateHelperVectors(std::vector<int>& icIndexes,std::vector<int>& ecIndexes,std::vector<int>& isoIndexes)
 {
