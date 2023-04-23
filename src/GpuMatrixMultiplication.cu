@@ -114,7 +114,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 __global__ void icMatrixMultiplication(
     int nS,int nV,
     uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
-    float* wmrSFPDevice, int ndirs,
+    cudaTextureObject_t WMRSFP, int ndirs,
     int* icIndexesDevice,
     float* xDevice,
     float* yDevice
@@ -133,16 +133,20 @@ __global__ void icMatrixMultiplication(
         float accumulator = 0.0f;
         for (int radii = 0; radii < nR; radii++)
         {
-            accumulator += xDevice[fiber + radii]*wmrSFPDevice[radii*ndirs*nS + orientation*nS + threadIdx.x]*length;
+            int xIndex = fiber + nF*radii;
+            int lookupTableIndex = radii*ndirs*nS + orientation*nS + threadIdx.x;
+
+            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*length;
         }
 
-        yDevice[voxel * nS + threadIdx.x] += accumulator;
+        int yIndex = voxel * nS + threadIdx.x;
+        yDevice[yIndex] += accumulator;
     }
 }
 __global__ void ecMatrixMultiplication(
     int nS,int nV,int nR,int nF,
     uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
-    float* wmhSFPDevice,int ndirs,
+    cudaTextureObject_t WMHSFP,int ndirs,
     int* ecIndexesDevice,
     float* xDevice,
     float* yDevice
@@ -160,17 +164,20 @@ __global__ void ecMatrixMultiplication(
         float accumulator = 0.0f;
         for (int tortuosity = 0; tortuosity < nT; tortuosity++)
         {
-            accumulator += xDevice[xIndex + tortuosity*nE]*wmhSFPDevice[tortuosity*ndirs*nS + orientation * nS + threadIdx.x];
+            int lookupTableIndex = tortuosity*ndirs*nS + orientation * nS + threadIdx.x;
+
+            accumulator += xDevice[xIndex + tortuosity*nE]*tex1Dfetch<float>(WMHSFP,lookupTableIndex);
         }
         xIndex++;
 
-        yDevice[voxel * nS + threadIdx.x] += accumulator;
+        int yIndex = voxel * nS + threadIdx.x;
+        yDevice[yIndex] += accumulator;
     }
 }
 __global__ void isoMatrixMultiplication(
     int nS,int nV,int nR,int nF,int nE,int nT,
     uint32_t* isovDevice, int nI,
-    float* isoSFPDevice,int ndirs,
+    cudaTextureObject_t ISOSFP,int ndirs,
     int* isoIndexesDevice,
     float* xDevice,
     float* yDevice
@@ -185,10 +192,14 @@ __global__ void isoMatrixMultiplication(
 
         float accumulator = 0.0f;
         for (int iso = 0; iso < nI; iso++)
-        {
-            accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*isoSFPDevice[iso * nS + threadIdx.x];
+        {   
+            int xIndex = nR*nF + nT*nE + voxel + iso*nV;
+            int lookupTableIndex = iso * nS + threadIdx.x;
+            accumulator += xDevice[xIndex]*tex1Dfetch<float>(ISOSFP,lookupTableIndex);
         }
-        yDevice[voxel * nS + threadIdx.x] += accumulator;
+
+        int yIndex = voxel * nS + threadIdx.x;
+        yDevice[yIndex] += accumulator;
     }
 }
 
@@ -331,14 +342,64 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
+    /* TEXTURE OBJECTS */
+
+    /* IC SECTION LOOKUPTABLE */
+    cudaResourceDesc resDescWMRSFP;
+    memset(&resDescWMRSFP,0,sizeof(resDescWMRSFP));
+    resDescWMRSFP.resType = cudaResourceTypeLinear;
+    resDescWMRSFP.res.linear.devPtr = wmrSFPDevice;
+    resDescWMRSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
+    resDescWMRSFP.res.linear.desc.x = 32;
+    resDescWMRSFP.res.linear.sizeInBytes = sizeof(float)*wmrSFP.size();
+
+    cudaTextureDesc texDescWMRSFP;
+    memset(&texDescWMRSFP, 0, sizeof(texDescWMRSFP));
+    texDescWMRSFP.readMode = cudaReadModeElementType;
+
+    cudaTextureObject_t WMRSFP=0;
+    cudaCreateTextureObject(&WMRSFP, &resDescWMRSFP, &texDescWMRSFP, NULL);
+
+    /* EC SECTION LOOKUPTABLE */
+    cudaResourceDesc resDescWMHSFP;
+    memset(&resDescWMHSFP,0,sizeof(resDescWMHSFP));
+    resDescWMHSFP.resType = cudaResourceTypeLinear;
+    resDescWMHSFP.res.linear.devPtr = wmhSFPDevice;
+    resDescWMHSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
+    resDescWMHSFP.res.linear.desc.x = 32;
+    resDescWMHSFP.res.linear.sizeInBytes = sizeof(float)*wmhSFP.size();
+
+    cudaTextureDesc texDescWMHSFP;
+    memset(&texDescWMHSFP, 0, sizeof(texDescWMHSFP));
+    texDescWMHSFP.readMode = cudaReadModeElementType;
+
+    cudaTextureObject_t WMHSFP=0;
+    cudaCreateTextureObject(&WMHSFP, &resDescWMHSFP, &texDescWMHSFP, NULL);
+
+    /* ISO SECTION LOOKUPTABLE */
+    cudaResourceDesc resDescISOSFP;
+    memset(&resDescISOSFP,0,sizeof(resDescISOSFP));
+    resDescISOSFP.resType = cudaResourceTypeLinear;
+    resDescISOSFP.res.linear.devPtr = isoSFPDevice;
+    resDescISOSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
+    resDescISOSFP.res.linear.desc.x = 32;
+    resDescISOSFP.res.linear.sizeInBytes = sizeof(float)*isoSFP.size();
+
+    cudaTextureDesc texDescISOSFP;
+    memset(&texDescISOSFP, 0, sizeof(texDescISOSFP));
+    texDescISOSFP.readMode = cudaReadModeElementType;
+
+    cudaTextureObject_t ISOSFP=0;
+    cudaCreateTextureObject(&ISOSFP, &resDescISOSFP, &texDescISOSFP, NULL);
+
     /* BLOCKS AND THREAD ORGANIZATION */
     dim3 dimGrid(BLOCKS,1,1);
     dim3 dimBlock(THREADS_PER_BLOCK,1,1);
 
     cudaEventRecord(kernelStart);
-    icMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,wmrSFPDevice,_ndirs,icIndexesDevice,xDevice,yDevice);
-    ecMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,ecvDevice,ecoDevice,_nT,_nE,wmhSFPDevice,_ndirs,ecIndexesDevice,xDevice,yDevice);
-    isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,isoSFPDevice,_ndirs,isoIndexesDevice,xDevice,yDevice);
+    icMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,WMRSFP,_ndirs,icIndexesDevice,xDevice,yDevice);
+    ecMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,ecvDevice,ecoDevice,_nT,_nE,WMHSFP,_ndirs,ecIndexesDevice,xDevice,yDevice);
+    isoMatrixMultiplication<<<dimGrid,dimBlock>>>(_nS,_nV,_nR,_nF,_nE,_nT,isovDevice,_nI,ISOSFP,_ndirs,isoIndexesDevice,xDevice,yDevice);
     cudaEventRecord(kernelStop);
 
     /* COPYING BACK THE RESULT */
@@ -350,6 +411,8 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaFree(ecvDevice);cudaFree(ecoDevice);
     cudaFree(isovDevice);
     cudaFree(wmrSFPDevice);cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
+
+    cudaDestroyTextureObject(WMRSFP);cudaDestroyTextureObject(WMHSFP);cudaDestroyTextureObject(ISOSFP);
 
     cudaEventRecord(totalStop);
 
