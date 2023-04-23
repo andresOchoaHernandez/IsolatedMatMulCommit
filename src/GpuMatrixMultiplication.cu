@@ -122,6 +122,7 @@ __global__ void commitMatrixMultiplication(
 {
     const int voxel  = blockIdx.x;
     const int sample = threadIdx.x;
+    const int yIndex = voxel * nS + sample;
 
     /* IC SEGMENTS TO ELABORATE */
     const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
@@ -136,31 +137,36 @@ __global__ void commitMatrixMultiplication(
     /* IC */
     for (int radii = 0; radii < nR; radii++)
     {
-        int lookupTableOffset = radii*ndirs*nS;
-
         for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
         {
-            accumulator += xDevice[icfDevice[icsegment] + radii]*tex1Dfetch<float>(WMRSFP,lookupTableOffset + icoDevice[icsegment] * nS + sample)*iclDevice[icsegment];
+            int xIndex = icfDevice[icsegment] + nF*radii;
+            int lookupTableIndex = radii*ndirs*nS + icoDevice[icsegment] * nS + sample;
+
+            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*iclDevice[icsegment];
         }
     }
     /* EC */
     for (int tortuosity = 0; tortuosity < nT; tortuosity++)
     {
-        int lookupTableOffset = tortuosity*ndirs*nS;
         int xIndex = nR*nF + tortuosity*nE + startEcSegment;
 
         for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
         {
-            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMHSFP,lookupTableOffset + ecoDevice[ecsegment] * nS + sample);
+            int lookupTableIndex = tortuosity*ndirs*nS + ecoDevice[ecsegment] * nS + sample;
+
+            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMHSFP,lookupTableIndex);
             xIndex++;
         }
     }
     /* ISO */
     for (int iso = 0; iso < nI; iso++)
-    {
-        accumulator += xDevice[(nR*nF + nT*nE + voxel) + iso*nV]*tex1Dfetch<float>(ISOSFP,iso * nS + sample);
+    {   
+        int xIndex = nR*nF + nT*nE + voxel + iso*nV;
+        int lookupTableIndex = iso * nS + sample;
+
+        accumulator += xDevice[xIndex]*tex1Dfetch<float>(ISOSFP,lookupTableIndex);
     }
-    yDevice[voxel * nS + sample] = accumulator;
+    yDevice[yIndex] = accumulator;
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
