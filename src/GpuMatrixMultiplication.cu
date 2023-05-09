@@ -133,17 +133,41 @@ __global__ void commitMatrixMultiplication(
     const int endEcSegment   = ecIndexesDevice[voxel];
 
     float accumulator = 0.0f;
-    
-    /* IC */
-    for (int radii = 0; radii < nR; radii++)
-    {
-        for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
-        {
-            int xIndex = icfDevice[icsegment] + nF*radii;
-            int lookupTableIndex = radii*ndirs*nS + icoDevice[icsegment] * nS + sample;
 
-            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*iclDevice[icsegment];
+    /* IC */
+    const int totalIcSegments  = endIcSegment - startIcSegment; 
+
+    __shared__ int   fibers[100];
+    __shared__ int   orientations[100];
+    __shared__ float lengths[100];
+
+    const int TOTAL_TILES = 1 + ((totalIcSegments-1)/100);
+    const int lastSegment = startIcSegment + (TOTAL_TILES-1) * 100 + 100; 
+    const int diff = lastSegment - endIcSegment;
+
+    for(int tile = 0; tile < TOTAL_TILES; tile++)
+    {
+        int segmentIndex = startIcSegment + tile * 100 + threadIdx.x;
+
+        if(segmentIndex < endIcSegment)
+        {
+            fibers[threadIdx.x]       = icfDevice[segmentIndex];
+            orientations[threadIdx.x] = icoDevice[segmentIndex];
+            lengths[threadIdx.x]      = iclDevice[segmentIndex];
         }
+        __syncthreads();
+
+        for (int radii = 0; radii < nR; radii++)
+        {
+            for(int icsegment = 0; icsegment < (tile == TOTAL_TILES-1 ? 100-diff:100); icsegment++)
+            {
+                int xIndex = fibers[icsegment] + nF*radii;
+                int lookupTableIndex = radii*ndirs*nS + orientations[icsegment] * nS + sample;
+
+                accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*lengths[icsegment];
+            }
+        }
+        __syncthreads();
     }
     /* EC */
     for (int tortuosity = 0; tortuosity < nT; tortuosity++)
