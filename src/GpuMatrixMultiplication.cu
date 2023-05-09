@@ -141,13 +141,13 @@ __global__ void commitMatrixMultiplication(
     __shared__ int   orientations[100];
     __shared__ float lengths[100];
 
-    const int TOTAL_TILES = 1 + ((totalIcSegments-1)/100);
-    const int lastSegment = startIcSegment + (TOTAL_TILES-1) * 100 + 100; 
+    const int TOTAL_TILES = 1 + ((totalIcSegments-1)/nS);
+    const int lastSegment = startIcSegment + (TOTAL_TILES-1) * nS + nS; 
     const int diff = lastSegment - endIcSegment;
 
     for(int tile = 0; tile < TOTAL_TILES; tile++)
     {
-        int segmentIndex = startIcSegment + tile * 100 + threadIdx.x;
+        int segmentIndex = startIcSegment + tile * nS + threadIdx.x;
 
         if(segmentIndex < endIcSegment)
         {
@@ -159,7 +159,7 @@ __global__ void commitMatrixMultiplication(
 
         for (int radii = 0; radii < nR; radii++)
         {
-            for(int icsegment = 0; icsegment < (tile == TOTAL_TILES-1 ? 100-diff:100); icsegment++)
+            for(int icsegment = 0; icsegment < (tile == TOTAL_TILES-1 ? nS-diff:nS); icsegment++)
             {
                 int xIndex = fibers[icsegment] + nF*radii;
                 int lookupTableIndex = radii*ndirs*nS + orientations[icsegment] * nS + sample;
