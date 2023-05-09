@@ -122,25 +122,51 @@ __global__ void icMatrixMultiplication(
 {
     const int startIcSegment = (blockIdx.x == 0)?0:icIndexesDevice[blockIdx.x-1];
     const int endIcSegment   = icIndexesDevice[blockIdx.x];
+    const int totalSegments  = endIcSegment - startIcSegment; 
 
-    for(int icsegment = startIcSegment; icsegment < endIcSegment; icsegment++)
+    __shared__ int   fibers[THREADS_PER_BLOCK];
+    __shared__ int   voxels[THREADS_PER_BLOCK];
+    __shared__ int   orientations[THREADS_PER_BLOCK];
+    __shared__ float lengths[THREADS_PER_BLOCK];
+
+    const int TOTAL_TILES = 1 + ((totalSegments-1)/THREADS_PER_BLOCK);
+
+    const int lastSegment = startIcSegment + (TOTAL_TILES-1) * THREADS_PER_BLOCK + THREADS_PER_BLOCK; 
+    const int diff = lastSegment - endIcSegment;
+
+    for(int tile = 0; tile < TOTAL_TILES; tile++)
     {
-        int fiber       = icfDevice[icsegment];
-        int voxel       = icvDevice[icsegment];
-        int orientation = icoDevice[icsegment];
-        float length    = iclDevice[icsegment];
+        int segmentIndex = startIcSegment + tile * THREADS_PER_BLOCK + threadIdx.x;
 
-        float accumulator = 0.0f;
-        for (int radii = 0; radii < nR; radii++)
+        if(segmentIndex < endIcSegment)
         {
-            int xIndex = fiber + nF*radii;
-            int lookupTableIndex = radii*ndirs*nS + orientation*nS + threadIdx.x;
-
-            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*length;
+            fibers[threadIdx.x]       = icfDevice[segmentIndex];
+            voxels[threadIdx.x]       = icvDevice[segmentIndex];
+            orientations[threadIdx.x] = icoDevice[segmentIndex];
+            lengths[threadIdx.x]      = iclDevice[segmentIndex];
         }
+        __syncthreads();
 
-        int yIndex = voxel * nS + threadIdx.x;
-        yDevice[yIndex] += accumulator;
+        for(int icsegment = 0; icsegment < (tile == TOTAL_TILES-1?THREADS_PER_BLOCK-diff:THREADS_PER_BLOCK); icsegment++)
+        {
+            int fiber       = fibers[icsegment];
+            int voxel       = voxels[icsegment];
+            int orientation = orientations[icsegment];
+            float length    = lengths[icsegment];
+    
+            float accumulator = 0.0f;
+            for (int radii = 0; radii < nR; radii++)
+            {
+                int xIndex = fiber + nF*radii;
+                int lookupTableIndex = radii*ndirs*nS + orientation*nS + threadIdx.x;
+
+                accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*length;
+            }
+            __syncthreads();
+
+            int yIndex = voxel * nS + threadIdx.x;
+            yDevice[yIndex] += accumulator;
+        }
     }
 }
 __global__ void ecMatrixMultiplication(
