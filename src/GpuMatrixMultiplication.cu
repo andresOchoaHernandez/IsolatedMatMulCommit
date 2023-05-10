@@ -107,7 +107,6 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         -------------------------
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
-
 __global__ void commitMatrixMultiplication(
     int nS,
     int nV,
@@ -120,32 +119,34 @@ __global__ void commitMatrixMultiplication(
     float* yDevice
 )
 {
+    /* SHARED MEMORY BUFFERS */
+    extern __shared__ float buffer[];
+    int* fibers = (int*)buffer;
+    int* orientations =(int*)&buffer[nS];
+    float* lengths = &buffer[2*nS];
+
+    /* MANDATORY INDEXES */
     const int voxel  = blockIdx.x;
     const int sample = threadIdx.x;
     const int yIndex = voxel * nS + sample;
 
-    /* IC SEGMENTS TO ELABORATE */
+    /* IC INDEXES */
     const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
     const int endIcSegment   = icIndexesDevice[voxel];
+    const int totalIcSegments  = endIcSegment - startIcSegment;
 
-    /* EC SEGMENTS TO ELABORATE */
+    const int TOTAL_IC_TILES = 1 + ((totalIcSegments-1)/nS);
+    const int lastIcSegment = startIcSegment + (TOTAL_IC_TILES-1) * nS + nS; 
+    const int diff = lastIcSegment - endIcSegment;
+
+    /* EC INDEXES */
     const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
     const int endEcSegment   = ecIndexesDevice[voxel];
 
+    /* MULTIPLICATION */
     float accumulator = 0.0f;
 
-    /* IC */
-    const int totalIcSegments  = endIcSegment - startIcSegment; 
-
-    __shared__ int   fibers[100];
-    __shared__ int   orientations[100];
-    __shared__ float lengths[100];
-
-    const int TOTAL_TILES = 1 + ((totalIcSegments-1)/nS);
-    const int lastSegment = startIcSegment + (TOTAL_TILES-1) * nS + nS; 
-    const int diff = lastSegment - endIcSegment;
-
-    for(int tile = 0; tile < TOTAL_TILES; tile++)
+    for(int tile = 0; tile < TOTAL_IC_TILES; tile++)
     {
         int segmentIndex = startIcSegment + tile * nS + threadIdx.x;
 
@@ -159,7 +160,7 @@ __global__ void commitMatrixMultiplication(
 
         for (int radii = 0; radii < nR; radii++)
         {
-            for(int icsegment = 0; icsegment < (tile == TOTAL_TILES-1 ? nS-diff:nS); icsegment++)
+            for(int icsegment = 0; icsegment < nS-diff*static_cast<int>(tile == TOTAL_IC_TILES-1); icsegment++)
             {
                 int xIndex = fibers[icsegment] + nF*radii;
                 int lookupTableIndex = radii*ndirs*nS + orientations[icsegment] * nS + sample;
@@ -169,7 +170,6 @@ __global__ void commitMatrixMultiplication(
         }
         __syncthreads();
     }
-    /* EC */
     for (int tortuosity = 0; tortuosity < nT; tortuosity++)
     {
         int xIndex = nR*nF + tortuosity*nE + startEcSegment;
@@ -182,7 +182,6 @@ __global__ void commitMatrixMultiplication(
             xIndex++;
         }
     }
-    /* ISO */
     for (int iso = 0; iso < nI; iso++)
     {   
         int xIndex = nR*nF + nT*nE + voxel + iso*nV;
@@ -190,6 +189,8 @@ __global__ void commitMatrixMultiplication(
 
         accumulator += xDevice[xIndex]*tex1Dfetch<float>(ISOSFP,lookupTableIndex);
     }
+
+    /* FINAL RESULT */
     yDevice[yIndex] = accumulator;
 }
 
@@ -326,7 +327,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     dim3 dimBlock(threadsPerBlock,1,1);
 
     cudaEventRecord(kernelStart);
-    commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
+    commitMatrixMultiplication<<<dimGrid,dimBlock,3*_nS*sizeof(float)>>>(
         _nS,
         _nV,
         icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
