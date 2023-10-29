@@ -107,91 +107,67 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         -------------------------
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
+
 __global__ void commitMatrixMultiplication(
-    int nS,
     int nV,
-    uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
-    uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
-    uint32_t* isovDevice, int nI,
-    cudaTextureObject_t WMRSFP, cudaTextureObject_t WMHSFP, cudaTextureObject_t ISOSFP,int ndirs,
-    int* icIndexesDevice, int* ecIndexesDevice,
+    uint32_t* icfDevice, uint32_t* icvDevice, float* iclDevice, int nR,int nF,
+    int* icIndexesDevice,
     float* xDevice,
     float* yDevice
 )
 {
+
     /* SHARED MEMORY BUFFERS */
     extern __shared__ float buffer[];
     int* fibers = (int*)buffer;
-    int* orientations =(int*)&buffer[nS];
-    float* lengths = &buffer[2*nS];
+    float* lengths = &buffer[32];
 
-    /* MANDATORY INDEXES */
-    const int voxel  = blockIdx.x;
-    const int sample = threadIdx.x;
-    const int yIndex = voxel * nS + sample;
+    const int voxel = blockIdx.x;
 
-    /* IC INDEXES */
-    const int startIcSegment = (voxel==0)?0:icIndexesDevice[voxel-1];
+    const int startIcSegment = (voxel == 0) ? 0 : icIndexesDevice[voxel-1];
     const int endIcSegment   = icIndexesDevice[voxel];
     const int totalIcSegments  = endIcSegment - startIcSegment;
 
-    const int TOTAL_IC_TILES = 1 + ((totalIcSegments-1)/nS);
-    const int lastIcSegment = startIcSegment + (TOTAL_IC_TILES-1) * nS + nS; 
-    const int diff = lastIcSegment - endIcSegment;
+    const int TOTAL_IC_TILES = 1 + ((totalIcSegments-1)/32);
 
-    /* EC INDEXES */
-    const int startEcSegment = (voxel==0)?0:ecIndexesDevice[voxel-1];
-    const int endEcSegment   = ecIndexesDevice[voxel];
-
-    /* MULTIPLICATION */
-    float accumulator = 0.0f;
+    float result = 0.0f;
 
     for(int tile = 0; tile < TOTAL_IC_TILES; tile++)
     {
-        int segmentIndex = startIcSegment + tile * nS + threadIdx.x;
+        int segmentIndex = startIcSegment + tile * 32 + threadIdx.x;
+
+
+        /*==================================================================*/
+        /*                 PART TO OPTIMIZE                                 */
 
         if(segmentIndex < endIcSegment)
         {
-            fibers[threadIdx.x]       = icfDevice[segmentIndex];
-            orientations[threadIdx.x] = icoDevice[segmentIndex];
-            lengths[threadIdx.x]      = iclDevice[segmentIndex];
+            fibers[threadIdx.x]  = icfDevice[segmentIndex];
+            lengths[threadIdx.x] = iclDevice[segmentIndex];
         }
-        __syncthreads();
 
-        for (int radii = 0; radii < nR; radii++)
+        /* CALCULATING MULTIPLICATION */
+        float accumulator = 0.0f;
+        
+        if(segmentIndex < endIcSegment)
         {
-            for(int icsegment = 0; icsegment < nS-diff*static_cast<int>(tile == TOTAL_IC_TILES-1); icsegment++)
-            {
-                int xIndex = fibers[icsegment] + nF*radii;
-                int lookupTableIndex = radii*ndirs*nS + orientations[icsegment] * nS + sample;
-
-                accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*lengths[icsegment];
-            }
+            accumulator = xDevice[fibers[threadIdx.x]] * lengths[threadIdx.x];
         }
-        __syncthreads();
+        /*==================================================================*/
+
+        /* REDUCTION */
+        for (int offset = 16; offset > 0; offset /= 2)
+            accumulator += __shfl_down_sync(0xffffffff, accumulator, offset);
+        
+        result += accumulator;
     }
-    for (int tortuosity = 0; tortuosity < nT; tortuosity++)
+
+    /* WRITING OUT THE RESULT */
+    if(threadIdx.x == 0)
     {
-        int xIndex = nR*nF + tortuosity*nE + startEcSegment;
-
-        for(int ecsegment = startEcSegment; ecsegment < endEcSegment; ecsegment++)
-        {
-            int lookupTableIndex = tortuosity*ndirs*nS + ecoDevice[ecsegment] * nS + sample;
-
-            accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMHSFP,lookupTableIndex);
-            xIndex++;
-        }
-    }
-    for (int iso = 0; iso < nI; iso++)
-    {   
-        int xIndex = nR*nF + nT*nE + voxel + iso*nV;
-        int lookupTableIndex = iso * nS + sample;
-
-        accumulator += xDevice[xIndex]*tex1Dfetch<float>(ISOSFP,lookupTableIndex);
+        yDevice[voxel] = result;
     }
 
-    /* FINAL RESULT */
-    yDevice[yIndex] = accumulator;
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
@@ -207,103 +183,21 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaEventRecord(totalStart);
 
     /* IC */
-    uint32_t* icfDevice; uint32_t* icvDevice; uint16_t* icoDevice; float* iclDevice;
+    uint32_t* icfDevice; uint32_t* icvDevice; float* iclDevice;
 
     CUDAERRCHECK(cudaMalloc(&icfDevice,sizeof(uint32_t)*icf.size()))
     CUDAERRCHECK(cudaMalloc(&icvDevice,sizeof(uint32_t)*icv.size()))
-    CUDAERRCHECK(cudaMalloc(&icoDevice,sizeof(uint16_t)*ico.size()))
     CUDAERRCHECK(cudaMalloc(&iclDevice,sizeof(float)*icl.size()))
 
     CUDAERRCHECK(cudaMemcpy(icfDevice,icf.data(),sizeof(uint32_t)*icf.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(icvDevice,icv.data(),sizeof(uint32_t)*icv.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(icoDevice,ico.data(),sizeof(uint16_t)*ico.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(iclDevice,icl.data(),sizeof(float)*icl.size(),cudaMemcpyHostToDevice))
 
-    /* EC */
-    uint32_t* ecvDevice; uint16_t* ecoDevice;
-
-    CUDAERRCHECK(cudaMalloc(&ecvDevice,sizeof(uint32_t)*ecv.size()))
-    CUDAERRCHECK(cudaMalloc(&ecoDevice,sizeof(uint16_t)*eco.size()))
-
-    CUDAERRCHECK(cudaMemcpy(ecvDevice,ecv.data(),sizeof(uint32_t)*ecv.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(ecoDevice,eco.data(),sizeof(uint16_t)*eco.size(),cudaMemcpyHostToDevice))
-
-    /* ISO */
-    uint32_t* isovDevice;
-
-    CUDAERRCHECK(cudaMalloc(&isovDevice,sizeof(uint32_t)*isov.size()))
-
-    CUDAERRCHECK(cudaMemcpy(isovDevice,isov.data(),sizeof(uint32_t)*isov.size(),cudaMemcpyHostToDevice))
-
-    /* LOOKUP TABLE */
-    float* wmrSFPDevice;float* wmhSFPDevice;float* isoSFPDevice;
-
-    CUDAERRCHECK(cudaMalloc(&wmrSFPDevice,sizeof(float)*wmrSFP.size()))
-    CUDAERRCHECK(cudaMalloc(&wmhSFPDevice,sizeof(float)*wmhSFP.size()))
-    CUDAERRCHECK(cudaMalloc(&isoSFPDevice,sizeof(float)*isoSFP.size()))
-
-    CUDAERRCHECK(cudaMemcpy(wmrSFPDevice,wmrSFP.data(),sizeof(float)*wmrSFP.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(wmhSFPDevice,wmhSFP.data(),sizeof(float)*wmhSFP.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(isoSFPDevice,isoSFP.data(),sizeof(float)*isoSFP.size(),cudaMemcpyHostToDevice))
-
-    /* TEXTURE OBJECTS  ONLY FOR IC SECTION FOR NOW */
-
-    /* IC SECTION LOOKUPTABLE */
-    cudaResourceDesc resDescWMRSFP;
-    memset(&resDescWMRSFP,0,sizeof(resDescWMRSFP));
-    resDescWMRSFP.resType = cudaResourceTypeLinear;
-    resDescWMRSFP.res.linear.devPtr = wmrSFPDevice;
-    resDescWMRSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
-    resDescWMRSFP.res.linear.desc.x = 32;
-    resDescWMRSFP.res.linear.sizeInBytes = sizeof(float)*wmrSFP.size();
-
-    cudaTextureDesc texDescWMRSFP;
-    memset(&texDescWMRSFP, 0, sizeof(texDescWMRSFP));
-    texDescWMRSFP.readMode = cudaReadModeElementType;
-
-    cudaTextureObject_t WMRSFP=0;
-    cudaCreateTextureObject(&WMRSFP, &resDescWMRSFP, &texDescWMRSFP, NULL);
-
-    /* EC SECTION LOOKUPTABLE */
-    cudaResourceDesc resDescWMHSFP;
-    memset(&resDescWMHSFP,0,sizeof(resDescWMHSFP));
-    resDescWMHSFP.resType = cudaResourceTypeLinear;
-    resDescWMHSFP.res.linear.devPtr = wmhSFPDevice;
-    resDescWMHSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
-    resDescWMHSFP.res.linear.desc.x = 32;
-    resDescWMHSFP.res.linear.sizeInBytes = sizeof(float)*wmhSFP.size();
-
-    cudaTextureDesc texDescWMHSFP;
-    memset(&texDescWMHSFP, 0, sizeof(texDescWMHSFP));
-    texDescWMHSFP.readMode = cudaReadModeElementType;
-
-    cudaTextureObject_t WMHSFP=0;
-    cudaCreateTextureObject(&WMHSFP, &resDescWMHSFP, &texDescWMHSFP, NULL);
-
-    /* ISO SECTION LOOKUPTABLE */
-    cudaResourceDesc resDescISOSFP;
-    memset(&resDescISOSFP,0,sizeof(resDescISOSFP));
-    resDescISOSFP.resType = cudaResourceTypeLinear;
-    resDescISOSFP.res.linear.devPtr = isoSFPDevice;
-    resDescISOSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
-    resDescISOSFP.res.linear.desc.x = 32;
-    resDescISOSFP.res.linear.sizeInBytes = sizeof(float)*isoSFP.size();
-
-    cudaTextureDesc texDescISOSFP;
-    memset(&texDescISOSFP, 0, sizeof(texDescISOSFP));
-    texDescISOSFP.readMode = cudaReadModeElementType;
-
-    cudaTextureObject_t ISOSFP=0;
-    cudaCreateTextureObject(&ISOSFP, &resDescISOSFP, &texDescISOSFP, NULL);
-
-    /* HELPER ARRAYS */
-    int* icIndexesDevice;int* ecIndexesDevice;
+    /* HELPER INDEXES */
+    int* icIndexesDevice;
 
     CUDAERRCHECK(cudaMalloc(&icIndexesDevice,sizeof(int)*icIndexes.size()))
-    CUDAERRCHECK(cudaMalloc(&ecIndexesDevice,sizeof(int)*ecIndexes.size()))
-
     CUDAERRCHECK(cudaMemcpy(icIndexesDevice,icIndexes.data(),sizeof(int)*icIndexes.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(ecIndexesDevice,ecIndexes.data(),sizeof(int)*ecIndexes.size(),cudaMemcpyHostToDevice))
 
     /* INPUT */
     float* xDevice;
@@ -321,20 +215,16 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     /* BLOCKS AND THREAD ORGANIZATION */
     const int blocks = _nV;
-    const int threadsPerBlock = _nS;
+    const int threadsPerBlock = 32;
 
     dim3 dimGrid(blocks,1,1);
     dim3 dimBlock(threadsPerBlock,1,1);
 
     cudaEventRecord(kernelStart);
-    commitMatrixMultiplication<<<dimGrid,dimBlock,3*_nS*sizeof(float)>>>(
-        _nS,
+    commitMatrixMultiplication<<<dimGrid,dimBlock,2*32*sizeof(float)>>>(
         _nV,
-        icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
-        ecvDevice,ecoDevice,_nT,_nE,
-        isovDevice,_nI,
-        WMRSFP,WMHSFP,ISOSFP,_ndirs,
-        icIndexesDevice,ecIndexesDevice,
+        icfDevice,icvDevice,iclDevice,_nR,_nF,
+        icIndexesDevice,
         xDevice,
         yDevice
     );
@@ -345,13 +235,8 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(obtainedResult.data(),yDevice,sizeof(float)*output.size(),cudaMemcpyDeviceToHost))
 
     /* FREEING MEMORY */
-    cudaFree(icfDevice);cudaFree(icvDevice);cudaFree(icoDevice);cudaFree(iclDevice);
-    cudaFree(ecvDevice);cudaFree(ecoDevice);
-    cudaFree(isovDevice);
-    cudaFree(wmrSFPDevice);cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
-    cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);
-
-    cudaDestroyTextureObject(WMRSFP);cudaDestroyTextureObject(WMHSFP);cudaDestroyTextureObject(ISOSFP);
+    cudaFree(icfDevice);cudaFree(icvDevice);cudaFree(iclDevice);
+    cudaFree(icIndexesDevice);
 
     cudaEventRecord(totalStop);
 
