@@ -7,6 +7,77 @@
 #include "ThreadedMatrixVecMultiplication.hpp"
 
 template<typename T>
+bool areNearlyEqual(T a, T b) {
+    const T normal_min = std::numeric_limits<T>::min();
+    const T relative_error = 0.00001;
+    if (!std::isfinite(a) || !std::isfinite(b))
+    {
+        return false;
+    }
+
+    T diff = std::abs(a - b);
+    if (diff <= normal_min) 
+        return true;
+
+    T abs_a = std::abs(a);
+    T abs_b = std::abs(b);
+
+    return (diff / std::max(abs_a, abs_b)) <= relative_error;
+}
+
+
+template<typename T>
+bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtained)
+{
+    if (correct.size() != obtained.size())
+    {
+        std::cout << "Correct and obtained vectors don't have same size!" << std::endl;
+        return false;
+    }
+
+    for(size_t i = 0;i < correct.size();i++)
+    {
+        if(!areNearlyEqual<T>(correct[i],obtained[i]))
+        {
+            std::cout << std::fixed << std::setprecision(6) <<
+                      "Error found : correct[" << i << "] = " << correct[i] << ", obtained[" << i << "] = " << obtained[i] << std::endl; 
+            return false;
+        }
+    }
+    return true;
+}
+
+float calculateAverageAbsoluteError(const std::vector<float>& correct,const std::vector<float>& obtained)
+{
+    if (correct.size() != obtained.size())
+    {
+        std::cout << "Correct and obtained vectors don't have same size!" << std::endl;
+        return false;
+    }
+
+    float accAbsErr = 0.0f;
+
+    for(size_t i = 0;i < correct.size();i++)
+    {
+        accAbsErr += std::abs(correct[i] - obtained[i]);
+    }
+    return accAbsErr/static_cast<float>(correct.size());
+}
+
+void printResult(const std::string& message,const std::vector<float>& correct,const std::vector<float>& obtained,bool correctness, long int time){
+
+    const std::string upperSepSx  = "------------------ ";
+    const std::string upperSepDx  = " ------------------";
+    const std::string downerSep(upperSepSx.length()*2+message.length(),'-'); 
+
+    std::cout << upperSepSx << message << upperSepDx                                    << std::endl
+              << "| correct     => " << ((correctness)? "true":"false")                 << std::endl
+              << "| time        => " << time << " ms"                                   << std::endl
+              << "| avg abs err => " << calculateAverageAbsoluteError(correct,obtained) << std::endl
+              << downerSep                                                              << std::endl;
+}
+
+template<typename T>
 void loadArray(const std::string& path,std::vector<T>& array)
 {
     std::ifstream data(path);
@@ -211,77 +282,27 @@ ecIndexes(_nV,0)
     {
         batchesLengths[i] = batches[i].lengths.size();
     }
-}
 
-template<typename T>
-bool areNearlyEqual(T a, T b) {
-    const T normal_min = std::numeric_limits<T>::min();
-    const T relative_error = 0.00001;
-    if (!std::isfinite(a) || !std::isfinite(b))
+
+    /* BATCHED STRUCT SEQUENTIAL TEST MULTIPLICATION */
+    begin = std::chrono::steady_clock::now();
+    std::vector<float> test(_nV);
+    for(unsigned int i = 0; i < batches.size();i++)
     {
-        return false;
-    }
-
-    T diff = std::abs(a - b);
-    if (diff <= normal_min) 
-        return true;
-
-    T abs_a = std::abs(a);
-    T abs_b = std::abs(b);
-
-    return (diff / std::max(abs_a, abs_b)) <= relative_error;
-}
-
-
-template<typename T>
-bool verifyCorrectness(const std::vector<T>& correct,const std::vector<T>& obtained)
-{
-    if (correct.size() != obtained.size())
-    {
-        std::cout << "Correct and obtained vectors don't have same size!" << std::endl;
-        return false;
-    }
-
-    for(size_t i = 0;i < correct.size();i++)
-    {
-        if(!areNearlyEqual<T>(correct[i],obtained[i]))
+        float acc = 0.0f;
+        
+        for(unsigned int j = 0; j < batches[i].lengths.size(); j++)
         {
-            std::cout << std::fixed << std::setprecision(6) <<
-                      "Error found : correct[" << i << "] = " << correct[i] << ", obtained[" << i << "] = " << obtained[i] << std::endl; 
-            return false;
+            acc += batches[i].lengths[j] * batches[i].weigths[j];
         }
+
+        test[i] = acc;
     }
-    return true;
-}
+    end = std::chrono::steady_clock::now();
+    long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
-float calculateAverageAbsoluteError(const std::vector<float>& correct,const std::vector<float>& obtained)
-{
-    if (correct.size() != obtained.size())
-    {
-        std::cout << "Correct and obtained vectors don't have same size!" << std::endl;
-        return false;
-    }
+    printResult("Array of struct sequential multiplication",output,test,verifyCorrectness<float>(output,test),time);
 
-    float accAbsErr = 0.0f;
-
-    for(size_t i = 0;i < correct.size();i++)
-    {
-        accAbsErr += std::abs(correct[i] - obtained[i]);
-    }
-    return accAbsErr/static_cast<float>(correct.size());
-}
-
-void printResult(const std::string& message,const std::vector<float>& correct,const std::vector<float>& obtained,bool correctness, long int time){
-
-    const std::string upperSepSx  = "------------------ ";
-    const std::string upperSepDx  = " ------------------";
-    const std::string downerSep(upperSepSx.length()*2+message.length(),'-'); 
-
-    std::cout << upperSepSx << message << upperSepDx                                    << std::endl
-              << "| correct     => " << ((correctness)? "true":"false")                 << std::endl
-              << "| time        => " << time << " ms"                                   << std::endl
-              << "| avg abs err => " << calculateAverageAbsoluteError(correct,obtained) << std::endl
-              << downerSep                                                              << std::endl;
 }
 
 void CommitOriginalDataStructure::sequentialMatrixMultiplication(){

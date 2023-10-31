@@ -128,7 +128,7 @@ __global__ void commitMatrixMultiplication(
 
     for(int tile = 0; tile < TOTAL_IC_TILES; tile++)
     {
-        float accumulator = batches[voxel].weigths[threadIdx.x] * batches[voxel].lengths[threadIdx.x];
+        float accumulator = batches[voxel].weigths[tile*32 + threadIdx.x] * batches[voxel].lengths[tile*32 + threadIdx.x];
    
         for (int offset = 16; offset > 0; offset /= 2)
             accumulator += __shfl_down_sync(0xffffffff, accumulator, offset);
