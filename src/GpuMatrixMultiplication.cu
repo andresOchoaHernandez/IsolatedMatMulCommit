@@ -108,64 +108,38 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
 
+struct BatchDevice
+{
+    float* weigths;
+    float* lengths;
+};
+
 __global__ void commitMatrixMultiplication(
-    uint32_t* icfDevice, float* iclDevice,
-    int* icIndexesDevice,
-    float* xDevice,
+    BatchDevice* batches,
+    unsigned int* batchesLengths,
     float* yDevice
 )
 {
-    /* SHARED MEMORY BUFFERS */
-    extern __shared__ float buffer[];
-    int* xBuffer = (int*)buffer;
-    float* lengthsBuffer = &buffer[32];
-
     const int voxel = blockIdx.x;
-
-    const int startIcSegment = (voxel == 0) ? 0 : icIndexesDevice[voxel-1];
-    const int endIcSegment   = icIndexesDevice[voxel];
-    const int totalIcSegments  = endIcSegment - startIcSegment;
-
-    const int TOTAL_IC_TILES = 1 + ((totalIcSegments-1)/32);
+    const int totalIcSegments = batchesLengths[voxel];
+    const int TOTAL_IC_TILES = totalIcSegments/32; /* totalIcSegments is already a multiple of 32 */
 
     float result = 0.0f;
 
     for(int tile = 0; tile < TOTAL_IC_TILES; tile++)
     {
-        int segmentIndex = startIcSegment + tile * 32 + threadIdx.x;
-
-
-        /*==================================================================*/
-        /*                 PART TO OPTIMIZE                                 */
-
-        if(segmentIndex < endIcSegment)
-        {
-            xBuffer[threadIdx.x]  = xDevice[icfDevice[segmentIndex]];
-            lengthsBuffer[threadIdx.x] = iclDevice[segmentIndex];
-        }
-
-        /* CALCULATING MULTIPLICATION */
-        float accumulator = 0.0f;
-        
-        if(segmentIndex < endIcSegment)
-        {
-            accumulator = xBuffer[threadIdx.x] * lengthsBuffer[threadIdx.x];
-        }
-        /*==================================================================*/
-
-        /* REDUCTION */
+        float accumulator = batches[voxel].weigths[threadIdx.x] * batches[voxel].lengths[threadIdx.x];
+   
         for (int offset = 16; offset > 0; offset /= 2)
             accumulator += __shfl_down_sync(0xffffffff, accumulator, offset);
-        
+
         result += accumulator;
     }
-
-    /* WRITING OUT THE RESULT */
+    
     if(threadIdx.x == 0)
     {
         yDevice[voxel] = result;
     }
-
 }
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
@@ -180,33 +154,33 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     cudaEventRecord(totalStart);
 
-    /* IC */
-    uint32_t* icfDevice; float* iclDevice;
+    /* BATCHES ALLOCATION & COPY TO GLOBAL MEMORY */
+    BatchDevice* batchesDevice;
+    CUDAERRCHECK(cudaMallocManaged((void **)&batchesDevice, sizeof(BatchDevice)*batches.size()))
 
-    CUDAERRCHECK(cudaMalloc(&icfDevice,sizeof(uint32_t)*icf.size()))
-    CUDAERRCHECK(cudaMalloc(&iclDevice,sizeof(float)*icl.size()))
+    for(int voxel = 0 ; voxel < _nV ; voxel++)
+    {
+        float* weigthsDev;
+        CUDAERRCHECK(cudaMalloc(&weigthsDev,sizeof(float)*batches[voxel].weigths.size()))
+        CUDAERRCHECK(cudaMemcpy(weigthsDev,batches[voxel].weigths.data(),sizeof(float)*batches[voxel].weigths.size(),cudaMemcpyHostToDevice))
 
-    CUDAERRCHECK(cudaMemcpy(icfDevice,icf.data(),sizeof(uint32_t)*icf.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(iclDevice,icl.data(),sizeof(float)*icl.size(),cudaMemcpyHostToDevice))
-
-    /* HELPER INDEXES */
-    int* icIndexesDevice;
-
-    CUDAERRCHECK(cudaMalloc(&icIndexesDevice,sizeof(int)*icIndexes.size()))
-    CUDAERRCHECK(cudaMemcpy(icIndexesDevice,icIndexes.data(),sizeof(int)*icIndexes.size(),cudaMemcpyHostToDevice))
-
-    /* INPUT */
-    float* xDevice;
+        float* lengthsDev;
+        CUDAERRCHECK(cudaMalloc(&lengthsDev,sizeof(float)*batches[voxel].lengths.size()))
+        CUDAERRCHECK(cudaMemcpy(lengthsDev,batches[voxel].lengths.data(),sizeof(float)*batches[voxel].lengths.size(),cudaMemcpyHostToDevice))
     
-    CUDAERRCHECK(cudaMalloc(&xDevice,sizeof(float)*input.size()))
+        batchesDevice[voxel].weigths = weigthsDev;
+        batchesDevice[voxel].lengths = lengthsDev;
+    }
 
-    CUDAERRCHECK(cudaMemcpy(xDevice,input.data(),sizeof(float)*input.size(),cudaMemcpyHostToDevice))
+    /* ARRAY OF LENGTHS OF EACH BATCH  */
+    unsigned int* batchesLengthsDevice;
+    CUDAERRCHECK(cudaMalloc(&batchesLengthsDevice,sizeof(float)*batchesLengths.size()))
+    CUDAERRCHECK(cudaMemcpy(batchesLengthsDevice,batchesLengths.data(),sizeof(float)*batchesLengths.size(),cudaMemcpyHostToDevice))
+
 
     /* RESULT */
     float* yDevice;
-
     CUDAERRCHECK(cudaMalloc(&yDevice,sizeof(float)*output.size()))
-    
     CUDAERRCHECK(cudaMemset(yDevice,0.0f,sizeof(float)*output.size()))
 
     /* BLOCKS AND THREAD ORGANIZATION */
@@ -217,12 +191,13 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     dim3 dimBlock(threadsPerBlock,1,1);
 
     cudaEventRecord(kernelStart);
-    commitMatrixMultiplication<<<dimGrid,dimBlock,2*32*sizeof(float)>>>(
-        icfDevice,iclDevice,
-        icIndexesDevice,
-        xDevice,
+
+    commitMatrixMultiplication<<<dimGrid,dimBlock>>>(
+        batchesDevice,
+        batchesLengthsDevice,
         yDevice
     );
+
     cudaEventRecord(kernelStop);
 
     /* COPYING BACK THE RESULT */
@@ -230,8 +205,14 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(obtainedResult.data(),yDevice,sizeof(float)*output.size(),cudaMemcpyDeviceToHost))
 
     /* FREEING MEMORY */
-    cudaFree(icfDevice);cudaFree(iclDevice);
-    cudaFree(icIndexesDevice);
+    for(int voxel = 0 ; voxel < _nV ; voxel++)
+    {
+        CUDAERRCHECK(cudaFree(batchesDevice[voxel].weigths))
+        CUDAERRCHECK(cudaFree(batchesDevice[voxel].lengths))
+    }
+    CUDAERRCHECK(cudaFree(batchesDevice))
+    CUDAERRCHECK(cudaFree(batchesLengthsDevice))
+    CUDAERRCHECK(cudaFree(yDevice))
 
     cudaEventRecord(totalStop);
 

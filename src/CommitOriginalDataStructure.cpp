@@ -65,6 +65,8 @@ ecThreads(_threads + 1),
 isoThreads(_threads + 1),
 input(N),
 output(M),
+batches(_nV),
+batchesLengths(_nV),
 icIndexes(_nV,0),
 ecIndexes(_nV,0)
 {
@@ -154,9 +156,6 @@ ecIndexes(_nV,0)
 
     if(_n > 0 && _nR > 0)
     {
-
-        unsigned int totalElements = 0u;
-
         uint32_t voxel = icv[0];
         for(int segment = 0; segment < _n; segment++)
         {
@@ -167,31 +166,50 @@ ecIndexes(_nV,0)
                 unsigned int segmentsPerVoxel = voxel == 0? segment : segment - icIndexes[voxel-1];
                 unsigned int nextMultiple = ((segmentsPerVoxel-1)/32 + 1) * 32;
                 unsigned int elementsToAdd = nextMultiple - segmentsPerVoxel;
-                totalElements += elementsToAdd;
 
+                Batch batch;
+                for(int i = voxel == 0? 0 : icIndexes[voxel-1]; i < segment; i++)
+                {
+                    batch.weigths.push_back(input[icf[i]]);
+                    batch.lengths.push_back(icl[i]);
+                }
+
+                for(unsigned int i = 0; i < elementsToAdd; i++)
+                {
+                    batch.weigths.push_back(0.0f);
+                    batch.lengths.push_back(0.0f);
+                }
+
+                batches[voxel] = batch;
                 voxel = icv[segment];
             }
         }
 
-        std::cout << "Total elements to add (padding)  : " << totalElements << std::endl;
-        std::cout << "Average added elements per voxel (padding) : " << static_cast<float>(totalElements)/static_cast<float>(_nV) << std::endl;
+        unsigned int segmentsPerVoxel = _n - icIndexes[_nV-2];
+        unsigned int nextMultiple = ((segmentsPerVoxel-1)/32 + 1) * 32;
+        unsigned int elementsToAdd = nextMultiple - segmentsPerVoxel;
+
+        Batch batch;
+        for(int i = icIndexes[_nV-2]; i < _n; i++)
+        {
+            batch.weigths.push_back(input[icf[i]]);
+            batch.lengths.push_back(icl[i]);
+        }
+
+        for(unsigned int i = 0; i < elementsToAdd; i++)
+        {
+            batch.weigths.push_back(0.0f);
+            batch.lengths.push_back(0.0f);
+        }
+        batches[_nV-1] = batch;
+
 
         icIndexes[_nV-1] =_n;
     }
 
-    if(_nE > 0 && _nT > 0)
+    for(int i = 0; i < _nV ; i++)
     {
-        uint32_t voxel = ecv[0];
-        for(int segment = 0; segment < _nE; segment++)
-        {
-            if(ecv[segment] != voxel)
-            {
-                ecIndexes[voxel] = segment;
-                voxel = ecv[segment];
-            }
-        }
-
-        ecIndexes[_nV-1] =_nE;
+        batchesLengths[i] = batches[i].lengths.size();
     }
 }
 

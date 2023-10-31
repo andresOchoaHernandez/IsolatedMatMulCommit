@@ -6,6 +6,12 @@
 #include <iostream>
 #include <vector>
 
+struct Batch
+{
+    std::vector<float> weigths;
+    std::vector<float> lengths;
+};
+
 class CommitOriginalDataStructure{
 
     int _nF;
@@ -22,6 +28,10 @@ class CommitOriginalDataStructure{
 
     std::vector<float> input;
     std::vector<float> output;
+
+    /* EXPERIMENTAL */
+    std::vector<Batch> batches;
+    std::vector<unsigned int> batchesLengths;
 
     /* IC */
     std::vector<uint32_t> icf;
