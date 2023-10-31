@@ -109,18 +109,16 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 */
 
 __global__ void commitMatrixMultiplication(
-    int nV,
-    uint32_t* icfDevice, uint32_t* icvDevice, float* iclDevice, int nR,int nF,
+    uint32_t* icfDevice, float* iclDevice,
     int* icIndexesDevice,
     float* xDevice,
     float* yDevice
 )
 {
-
     /* SHARED MEMORY BUFFERS */
     extern __shared__ float buffer[];
-    int* fibers = (int*)buffer;
-    float* lengths = &buffer[32];
+    int* xBuffer = (int*)buffer;
+    float* lengthsBuffer = &buffer[32];
 
     const int voxel = blockIdx.x;
 
@@ -142,8 +140,8 @@ __global__ void commitMatrixMultiplication(
 
         if(segmentIndex < endIcSegment)
         {
-            fibers[threadIdx.x]  = icfDevice[segmentIndex];
-            lengths[threadIdx.x] = iclDevice[segmentIndex];
+            xBuffer[threadIdx.x]  = xDevice[icfDevice[segmentIndex]];
+            lengthsBuffer[threadIdx.x] = iclDevice[segmentIndex];
         }
 
         /* CALCULATING MULTIPLICATION */
@@ -151,7 +149,7 @@ __global__ void commitMatrixMultiplication(
         
         if(segmentIndex < endIcSegment)
         {
-            accumulator = xDevice[fibers[threadIdx.x]] * lengths[threadIdx.x];
+            accumulator = xBuffer[threadIdx.x] * lengthsBuffer[threadIdx.x];
         }
         /*==================================================================*/
 
@@ -183,14 +181,12 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaEventRecord(totalStart);
 
     /* IC */
-    uint32_t* icfDevice; uint32_t* icvDevice; float* iclDevice;
+    uint32_t* icfDevice; float* iclDevice;
 
     CUDAERRCHECK(cudaMalloc(&icfDevice,sizeof(uint32_t)*icf.size()))
-    CUDAERRCHECK(cudaMalloc(&icvDevice,sizeof(uint32_t)*icv.size()))
     CUDAERRCHECK(cudaMalloc(&iclDevice,sizeof(float)*icl.size()))
 
     CUDAERRCHECK(cudaMemcpy(icfDevice,icf.data(),sizeof(uint32_t)*icf.size(),cudaMemcpyHostToDevice))
-    CUDAERRCHECK(cudaMemcpy(icvDevice,icv.data(),sizeof(uint32_t)*icv.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(iclDevice,icl.data(),sizeof(float)*icl.size(),cudaMemcpyHostToDevice))
 
     /* HELPER INDEXES */
@@ -222,8 +218,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     cudaEventRecord(kernelStart);
     commitMatrixMultiplication<<<dimGrid,dimBlock,2*32*sizeof(float)>>>(
-        _nV,
-        icfDevice,icvDevice,iclDevice,_nR,_nF,
+        icfDevice,iclDevice,
         icIndexesDevice,
         xDevice,
         yDevice
@@ -235,7 +230,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(obtainedResult.data(),yDevice,sizeof(float)*output.size(),cudaMemcpyDeviceToHost))
 
     /* FREEING MEMORY */
-    cudaFree(icfDevice);cudaFree(icvDevice);cudaFree(iclDevice);
+    cudaFree(icfDevice);cudaFree(iclDevice);
     cudaFree(icIndexesDevice);
 
     cudaEventRecord(totalStop);

@@ -6,38 +6,6 @@
 #include "CommitOriginalDataStructure.hpp"
 #include "ThreadedMatrixVecMultiplication.hpp"
 
-CommitOriginalDataStructure::CommitOriginalDataStructure(int nF, int n, int nE, int nV, int nS, int ndirs,int nI,int nR, int nT,int threads):
-_nF{nF},
-_n{n},
-_nE{nE},
-_nV{nV},
-_nS{nS},
-_ndirs{ndirs},
-_nI{nI},
-_nR{nR},
-_nT{nT},
-M{_nV*_nS},
-N{_nR*_nF + _nT*_nE + _nI*_nV},
-icf(_n),
-icv(_n),
-ico(_n),
-icl(_n),
-ecv(_nE),
-eco(_nE),
-isov(_nV),
-wmrSFP(_nR*_ndirs*_nS),
-wmhSFP(_nT*_ndirs*_nS),
-isoSFP(_nI*_nS),
-_threads(threads),
-icThreads(_threads + 1),
-ecThreads(_threads + 1),
-isoThreads(_threads + 1),
-input(N),
-output(M),
-icIndexes(_nV,0),
-ecIndexes(_nV,0)
-{}
-
 template<typename T>
 void loadArray(const std::string& path,std::vector<T>& array)
 {
@@ -69,9 +37,38 @@ void loadArray(const std::string& path,std::vector<T>& array)
     }
 }
 
-void CommitOriginalDataStructure::loadDataset()
+CommitOriginalDataStructure::CommitOriginalDataStructure(int nF, int n, int nE, int nV, int nS, int ndirs,int nI,int nR, int nT,int threads):
+_nF{nF},
+_n{n},
+_nE{nE},
+_nV{nV},
+_nS{nS},
+_ndirs{ndirs},
+_nI{nI},
+_nR{nR},
+_nT{nT},
+M{_nV*_nS},
+N{_nR*_nF + _nT*_nE + _nI*_nV},
+icf(_n),
+icv(_n),
+ico(_n),
+icl(_n),
+ecv(_nE),
+eco(_nE),
+isov(_nV),
+wmrSFP(_nR*_ndirs*_nS),
+wmhSFP(_nT*_ndirs*_nS),
+isoSFP(_nI*_nS),
+_threads(threads),
+icThreads(_threads + 1),
+ecThreads(_threads + 1),
+isoThreads(_threads + 1),
+input(N),
+output(M),
+icIndexes(_nV,0),
+ecIndexes(_nV,0)
 {
-std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
     #pragma omp parallel
     {
@@ -154,6 +151,48 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     std::cout << "------------------ Loading dataset ------------------"     << std::endl
               << "| time => " << timeLoading    << " ms" << std::endl
               << "-----------------------------------------------------"     << std::endl;
+
+    if(_n > 0 && _nR > 0)
+    {
+
+        unsigned int totalElements = 0u;
+
+        uint32_t voxel = icv[0];
+        for(int segment = 0; segment < _n; segment++)
+        {
+            if(icv[segment] != voxel)
+            {
+                icIndexes[voxel] = segment;
+
+                unsigned int segmentsPerVoxel = voxel == 0? segment : segment - icIndexes[voxel-1];
+                unsigned int nextMultiple = ((segmentsPerVoxel-1)/32 + 1) * 32;
+                unsigned int elementsToAdd = nextMultiple - segmentsPerVoxel;
+                totalElements += elementsToAdd;
+
+                voxel = icv[segment];
+            }
+        }
+
+        std::cout << "Total elements to add (padding)  : " << totalElements << std::endl;
+        std::cout << "Average added elements per voxel (padding) : " << static_cast<float>(totalElements)/static_cast<float>(_nV) << std::endl;
+
+        icIndexes[_nV-1] =_n;
+    }
+
+    if(_nE > 0 && _nT > 0)
+    {
+        uint32_t voxel = ecv[0];
+        for(int segment = 0; segment < _nE; segment++)
+        {
+            if(ecv[segment] != voxel)
+            {
+                ecIndexes[voxel] = segment;
+                voxel = ecv[segment];
+            }
+        }
+
+        ecIndexes[_nV-1] =_nE;
+    }
 }
 
 template<typename T>
@@ -310,37 +349,4 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
     printResult("Threaded matrix multiplication",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
-}
-
-void CommitOriginalDataStructure::generateIndexesVector()
-{
-    if(_n > 0 && _nR > 0)
-    {
-        uint32_t voxel = icv[0];
-        for(int segment = 0; segment < _n; segment++)
-        {
-            if(icv[segment] != voxel)
-            {
-                icIndexes[voxel] = segment;
-                voxel = icv[segment];
-            }
-        }
-
-        icIndexes[_nV-1] =_n;
-    }
-
-    if(_nE > 0 && _nT > 0)
-    {
-        uint32_t voxel = ecv[0];
-        for(int segment = 0; segment < _nE; segment++)
-        {
-            if(ecv[segment] != voxel)
-            {
-                ecIndexes[voxel] = segment;
-                voxel = ecv[segment];
-            }
-        }
-
-        ecIndexes[_nV-1] =_nE;
-    }
 }

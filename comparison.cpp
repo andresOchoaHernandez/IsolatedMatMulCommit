@@ -18,14 +18,9 @@ int main()
     const int threads = 1;
 
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
-
-    originalDataStructure.loadDataset();
-
+    
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
-
-    originalDataStructure.generateIndexesVector();
-
     originalDataStructure.gpuMatrixMultiplication();
 
     return 0;
