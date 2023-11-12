@@ -107,13 +107,18 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
                         -------------------------
                         to achieve full GPU occupancy : 480 (or a multiple of it) blocks of 64 threads 
 */
+
+#define WMRSFP_SIZE 16000
+
+__constant__ float WMRSFP[WMRSFP_SIZE];
+
 __global__ void commitMatrixMultiplication(
     int nS,
     int nV,
     uint32_t* icfDevice, uint32_t* icvDevice, uint16_t* icoDevice, float* iclDevice, int nR,int nF,
     uint32_t* ecvDevice, uint16_t* ecoDevice, int nT,int nE,
     uint32_t* isovDevice, int nI,
-    cudaTextureObject_t WMRSFP, cudaTextureObject_t WMHSFP, cudaTextureObject_t ISOSFP,int ndirs,
+    cudaTextureObject_t WMHSFP, cudaTextureObject_t ISOSFP,int ndirs,
     int* icIndexesDevice, int* ecIndexesDevice,
     float* xDevice,
     float* yDevice
@@ -165,7 +170,7 @@ __global__ void commitMatrixMultiplication(
                 int xIndex = fibers[icsegment] + nF*radii;
                 int lookupTableIndex = radii*ndirs*nS + orientations[icsegment] * nS + sample;
 
-                accumulator += xDevice[xIndex]*tex1Dfetch<float>(WMRSFP,lookupTableIndex)*lengths[icsegment];
+                accumulator += xDevice[xIndex]*WMRSFP[lookupTableIndex]*lengths[icsegment];
             }
         }
         __syncthreads();
@@ -236,33 +241,20 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(isovDevice,isov.data(),sizeof(uint32_t)*isov.size(),cudaMemcpyHostToDevice))
 
     /* LOOKUP TABLE */
-    float* wmrSFPDevice;float* wmhSFPDevice;float* isoSFPDevice;
 
-    CUDAERRCHECK(cudaMalloc(&wmrSFPDevice,sizeof(float)*wmrSFP.size()))
+    /* IC */
+    CUDAERRCHECK( cudaMemcpyToSymbol(WMRSFP,wmrSFP.data(),sizeof(float)*wmrSFP.size(), 0, cudaMemcpyHostToDevice) );
+
+    /* EC & ISO SECTIONS */
+    float* wmhSFPDevice;float* isoSFPDevice;
+
     CUDAERRCHECK(cudaMalloc(&wmhSFPDevice,sizeof(float)*wmhSFP.size()))
     CUDAERRCHECK(cudaMalloc(&isoSFPDevice,sizeof(float)*isoSFP.size()))
 
-    CUDAERRCHECK(cudaMemcpy(wmrSFPDevice,wmrSFP.data(),sizeof(float)*wmrSFP.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(wmhSFPDevice,wmhSFP.data(),sizeof(float)*wmhSFP.size(),cudaMemcpyHostToDevice))
     CUDAERRCHECK(cudaMemcpy(isoSFPDevice,isoSFP.data(),sizeof(float)*isoSFP.size(),cudaMemcpyHostToDevice))
 
-    /* TEXTURE OBJECTS  ONLY FOR IC SECTION FOR NOW */
-
-    /* IC SECTION LOOKUPTABLE */
-    cudaResourceDesc resDescWMRSFP;
-    memset(&resDescWMRSFP,0,sizeof(resDescWMRSFP));
-    resDescWMRSFP.resType = cudaResourceTypeLinear;
-    resDescWMRSFP.res.linear.devPtr = wmrSFPDevice;
-    resDescWMRSFP.res.linear.desc.f = cudaChannelFormatKindFloat;
-    resDescWMRSFP.res.linear.desc.x = 32;
-    resDescWMRSFP.res.linear.sizeInBytes = sizeof(float)*wmrSFP.size();
-
-    cudaTextureDesc texDescWMRSFP;
-    memset(&texDescWMRSFP, 0, sizeof(texDescWMRSFP));
-    texDescWMRSFP.readMode = cudaReadModeElementType;
-
-    cudaTextureObject_t WMRSFP=0;
-    cudaCreateTextureObject(&WMRSFP, &resDescWMRSFP, &texDescWMRSFP, NULL);
+    /* TEXTURE OBJECTS */
 
     /* EC SECTION LOOKUPTABLE */
     cudaResourceDesc resDescWMHSFP;
@@ -333,7 +325,7 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
         icfDevice,icvDevice,icoDevice,iclDevice,_nR,_nF,
         ecvDevice,ecoDevice,_nT,_nE,
         isovDevice,_nI,
-        WMRSFP,WMHSFP,ISOSFP,_ndirs,
+        WMHSFP,ISOSFP,_ndirs,
         icIndexesDevice,ecIndexesDevice,
         xDevice,
         yDevice
@@ -348,10 +340,10 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaFree(icfDevice);cudaFree(icvDevice);cudaFree(icoDevice);cudaFree(iclDevice);
     cudaFree(ecvDevice);cudaFree(ecoDevice);
     cudaFree(isovDevice);
-    cudaFree(wmrSFPDevice);cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
+    cudaFree(wmhSFPDevice);cudaFree(isoSFPDevice);
     cudaFree(icIndexesDevice);cudaFree(ecIndexesDevice);
 
-    cudaDestroyTextureObject(WMRSFP);cudaDestroyTextureObject(WMHSFP);cudaDestroyTextureObject(ISOSFP);
+    cudaDestroyTextureObject(WMHSFP);cudaDestroyTextureObject(ISOSFP);
 
     cudaEventRecord(totalStop);
 
