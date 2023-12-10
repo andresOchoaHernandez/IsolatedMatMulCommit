@@ -19,14 +19,19 @@ int main()
 
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
 
+    
     originalDataStructure.loadDataset();
 
+    originalDataStructure.prepareBatchedLUT();
+
+    /*
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
 
     originalDataStructure.generateIndexesVector();
 
     originalDataStructure.gpuMatrixMultiplication();
+    */
 
     return 0;
 }

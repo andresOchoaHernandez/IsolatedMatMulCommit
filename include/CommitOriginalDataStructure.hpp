@@ -6,6 +6,14 @@
 #include <iostream>
 #include <vector>
 
+#define SAMPLE_TILE_LENGTH 24
+
+struct LUTBatch{
+    std::vector<float> wmrSFP;
+    std::vector<float> wmhSFP;
+    std::vector<float> isoSFP;
+};
+
 class CommitOriginalDataStructure{
 
     int _nF;
@@ -47,6 +55,9 @@ class CommitOriginalDataStructure{
     /* ISO */
     std::vector<float> isoSFP;
 
+    /* ===== BATCHED LOOKUP TABLES ===== */
+    std::vector<LUTBatch> batchedLUTs;
+
     /* ===== THREADS DS   ===== */
     int _threads;
     std::vector<uint32_t> icThreads;
@@ -60,6 +71,7 @@ class CommitOriginalDataStructure{
     public:
         CommitOriginalDataStructure(int nF, int n, int nE, int nV, int nS, int ndirs,int nI,int nR, int nT,int threads);
         void loadDataset();
+        void prepareBatchedLUT();
 
         void sequentialMatrixMultiplication();
         void threadedMatrixMultiplication();

@@ -35,7 +35,8 @@ isoThreads(_threads + 1),
 input(N),
 output(M),
 icIndexes(_nV,0),
-ecIndexes(_nV,0)
+ecIndexes(_nV,0),
+batchedLUTs(1 + ((nS-1)/SAMPLE_TILE_LENGTH))
 {}
 
 template<typename T>
@@ -343,4 +344,89 @@ void CommitOriginalDataStructure::generateIndexesVector()
 
         ecIndexes[_nV-1] =_nE;
     }
+}
+
+void CommitOriginalDataStructure::prepareBatchedLUT()
+{
+    for(unsigned batch = 0; batch < batchedLUTs.size(); batch++)
+    {
+
+        LUTBatch LUT;
+
+        unsigned SAMPLE_BATCH_OFFSET = batch * SAMPLE_TILE_LENGTH;
+
+        /* IC */
+        for(unsigned radius = 0; radius < _nR ; radius++)
+        {
+            for(unsigned direction = 0 ; direction < _ndirs ; direction++)
+            {
+                for(unsigned sample = 0 ; sample < SAMPLE_TILE_LENGTH ; sample++)
+                {
+                    if(SAMPLE_BATCH_OFFSET + sample < _nS)
+                    {
+                        LUT.wmrSFP.push_back(wmrSFP[(radius*_ndirs*_nS) + (direction * _nS + SAMPLE_BATCH_OFFSET + sample)]);
+                    }
+                    else
+                    {
+                        LUT.wmrSFP.push_back(1.0f);
+                    }
+                }
+            }
+        }
+
+        /* EC */
+        for(unsigned ec = 0; ec < _nT ; ec++)
+        {
+            for(unsigned direction = 0 ; direction < _ndirs ; direction++)
+            {
+                for(unsigned sample = 0 ; sample < SAMPLE_TILE_LENGTH ; sample++)
+                {
+                    if(SAMPLE_BATCH_OFFSET + sample < _nS)
+                    {
+                        LUT.wmhSFP.push_back(wmhSFP[(ec*_ndirs*_nS) + (direction * _nS + SAMPLE_BATCH_OFFSET + sample)]);
+                    }
+                    else
+                    {
+                        LUT.wmhSFP.push_back(1.0f);
+                    }
+                }
+            }
+        }
+
+        /* ISO */
+        for(unsigned iso = 0; iso < _nI ; iso++)
+        {
+            for(unsigned sample = 0 ; sample < SAMPLE_TILE_LENGTH ; sample++)
+            {
+                if(SAMPLE_BATCH_OFFSET + sample < _nS)
+                {
+                    LUT.isoSFP.push_back(isoSFP[(iso*_nS) + SAMPLE_BATCH_OFFSET + sample]);
+                }
+                else
+                {
+                    LUT.isoSFP.push_back(1.0f);
+                }
+            }
+        }
+
+        batchedLUTs[batch] = LUT;
+    }
+
+    /* SEQUENTIAL MULTIPLICATION USING THIS DATA STRUCTURE TO SEE IF THE PROCEDURE IS CORRECT */
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
+    std::vector<float> outputVector(output.size(),0);
+    
+    for(unsigned batch = 0 ; batch < batchedLUTs.size() ; batch++)
+    {
+        unsigned SAMPLE_BATCH_OFFSET = batch * SAMPLE_TILE_LENGTH;
+
+      /* TODO: */
+    }
+
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+    long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+    printResult("Sequential multiplication batched LUT",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
 }
