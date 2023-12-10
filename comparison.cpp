@@ -12,10 +12,10 @@ int main()
     int _nT       = 1;
     int _nV       = 53008;
     int _nI       = 2;
-    int _n        = 16664340;
-    int _ndirs    = 32761;
+    int _n        = 15825021;
+    int _ndirs    = 500;
 
-    const int threads = 32;
+    const int threads = 1;
 
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
 

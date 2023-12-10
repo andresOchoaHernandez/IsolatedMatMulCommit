@@ -4,7 +4,7 @@
 #include "ThreadedMatrixVecMultiplication.hpp"
 
 #ifndef nTHREADS
-    #define nTHREADS 32
+    #define nTHREADS 1
 #endif
 
 #ifndef nIC
