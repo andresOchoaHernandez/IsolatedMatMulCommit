@@ -46,9 +46,9 @@ target_include_directories(
 target_sources(
     comparison
     PUBLIC  ${PROJECT_SOURCE_DIR}/include/CommitOriginalDataStructure.hpp
-    PUBLIC  ${PROJECT_SOURCE_DIR}/include/ThreadedMatrixVecMultiplication.hpp
+    PUBLIC  ${PROJECT_SOURCE_DIR}/include/ThreadedMatrixVecMultiplicationNoLUT.hpp
 
     PRIVATE ${PROJECT_SOURCE_DIR}/src/CommitOriginalDataStructure.cpp
-    PRIVATE ${PROJECT_SOURCE_DIR}/src/ThreadedMatrixVecMultiplication.cpp
+    PRIVATE ${PROJECT_SOURCE_DIR}/src/ThreadedMatrixVecMultiplicationNoLUT.cpp
     PRIVATE ${PROJECT_SOURCE_DIR}/src/GpuMatrixMultiplication.cu
 )

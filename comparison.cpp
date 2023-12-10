@@ -15,13 +15,13 @@ int main()
     int _n        = 153015729;
     int _ndirs    = 1;
 
-    const int threads = 1;
+    const int threads = 12;
 
     CommitOriginalDataStructure originalDataStructure(_nF, _n, _nE, _nV, _nS, _ndirs,_nI,_nR, _nT,threads);
     
     originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
     originalDataStructure.gpuMatrixMultiplication();
-
+    
     return 0;
 }

@@ -4,7 +4,7 @@
 #include <bits/stdc++.h>
 
 #include "CommitOriginalDataStructure.hpp"
-#include "ThreadedMatrixVecMultiplication.hpp"
+#include "ThreadedMatrixVecMultiplicationNoLUT.hpp"
 
 template<typename T>
 bool areNearlyEqual(T a, T b) {
@@ -211,7 +211,7 @@ ecIndexes(_nV,0)
     long int timeLoading = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
     
     /* INITIALIZE CORRECT OUTPUT ARRAY */
-    threaded_matVecMult(
+    threaded_matVecMult_NoLUT(
         _nF, _n, _nE, _nV, _nS, _ndirs,
         input.data(),output.data(),
         icf.data(),icv.data(),ico.data(),icl.data(),
@@ -373,7 +373,7 @@ void CommitOriginalDataStructure::threadedMatrixMultiplication(){
 
     std::vector<float> outputVector(output.size(),0);
     
-    threaded_matVecMult(
+    threaded_matVecMult_NoLUT(
         _nF, _n, _nE, _nV, _nS, _ndirs,
         input.data(),outputVector.data(),
         icf.data(),icv.data(),ico.data(),icl.data(),

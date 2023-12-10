@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-void threaded_matVecMult(
+void threaded_matVecMult_NoLUT(
     int _nF, int _n, int _nE, int _nV, int _nS, int _ndirs,
     float *_vIN, float *_vOUT,
     uint32_t *_ICf, uint32_t *_ICv, uint16_t *_ICo, float *_ICl,
