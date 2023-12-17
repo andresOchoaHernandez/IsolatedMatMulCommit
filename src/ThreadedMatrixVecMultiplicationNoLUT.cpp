@@ -3,7 +3,7 @@
 #include "ThreadedMatrixVecMultiplicationNoLUT.hpp"
 
 #ifndef nTHREADS
-    #define nTHREADS 12
+    #define nTHREADS 1
 #endif
 
 #ifndef nIC
@@ -34,8 +34,8 @@ float       *ICl;
 void* COMMIT_A__block( void *ptr )
 {
     int      id = (long)ptr;
-    double   x0;
-    double   *xPtr;
+    float   x0;
+    float   *xPtr;
     uint32_t *t_v, *t_vEnd, *t_f;
     float    *t_l;
 
@@ -49,7 +49,7 @@ void* COMMIT_A__block( void *ptr )
     {
         x0 = x[*t_f];
         if ( x0 != 0 )
-            Y[*t_v] += (double)(*t_l) * x0;
+            Y[*t_v] += (float)(*t_l) * x0;
         t_f++;
         t_v++;
         t_l++;
