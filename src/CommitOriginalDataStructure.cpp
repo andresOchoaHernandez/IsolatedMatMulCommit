@@ -285,8 +285,9 @@ ecIndexes(_nV,0)
 
 
     /* BATCHED STRUCT SEQUENTIAL TEST MULTIPLICATION */
+    std::vector<float> test(_nV);\
+
     begin = std::chrono::steady_clock::now();
-    std::vector<float> test(_nV);
     for(unsigned int i = 0; i < batches.size();i++)
     {
         float acc = 0.0f;
@@ -299,10 +300,27 @@ ecIndexes(_nV,0)
         test[i] = acc;
     }
     end = std::chrono::steady_clock::now();
+
     long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
     printResult("Array of struct sequential multiplication",output,test,verifyCorrectness<float>(output,test),time);
 
+    /* BATCHED STRUCT PARALLLEL TEST MULTIPLICATION */
+    std::fill(test.begin(),test.end(),0.0f);
+    
+    begin = std::chrono::steady_clock::now();
+
+    pthread_t *workers = new pthread_t[_threads];
+
+    // TODO:
+    
+
+    delete[] workers;
+
+    end = std::chrono::steady_clock::now();
+    time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+    printResult("Array of struct parallel multiplication",output,test,verifyCorrectness<float>(output,test),time);
 }
 
 void CommitOriginalDataStructure::sequentialMatrixMultiplication(){
