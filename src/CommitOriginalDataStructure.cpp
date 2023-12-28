@@ -411,22 +411,4 @@ void CommitOriginalDataStructure::prepareBatchedLUT()
 
         batchedLUTs[batch] = LUT;
     }
-
-    /* SEQUENTIAL MULTIPLICATION USING THIS DATA STRUCTURE TO SEE IF THE PROCEDURE IS CORRECT */
-    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-
-    std::vector<float> outputVector(output.size(),0);
-    
-    for(unsigned batch = 0 ; batch < batchedLUTs.size() ; batch++)
-    {
-        unsigned SAMPLE_BATCH_OFFSET = batch * SAMPLE_TILE_LENGTH;
-
-      /* TODO: */
-    }
-
-    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-    long int time = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-
-    printResult("Sequential multiplication batched LUT",output,outputVector,verifyCorrectness<float>(output,outputVector),time);
 }

@@ -22,16 +22,11 @@ int main()
     
     originalDataStructure.loadDataset();
 
+    originalDataStructure.generateIndexesVector();
     originalDataStructure.prepareBatchedLUT();
 
-    /*
-    originalDataStructure.sequentialMatrixMultiplication();
     originalDataStructure.threadedMatrixMultiplication();
-
-    originalDataStructure.generateIndexesVector();
-
     originalDataStructure.gpuMatrixMultiplication();
-    */
 
     return 0;
 }
