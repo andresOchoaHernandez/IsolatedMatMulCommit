@@ -95,10 +95,19 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 }
 
 __global__ void commitMatrixMultiplication(
-    unsigned nR,unsigned ndirs, LUTBatchDevice lutBatchesDevice,
+    uint32_t* icfDevice, uint16_t* icoDevice, float* iclDevice,int nR,int nF,
+    uint16_t* ecoDevice, int nT,int nE,
+    int nI,
+    unsigned ndirs, LUTBatchDevice lutBatchesDevice,int sampleTileIndex,
+    int* icIndexesDevice, int* ecIndexesDevice,
+    float* xDevice,
     float* yDevice
 )
 {
+    const int voxel  = blockIdx.x;
+    const int sample = threadIdx.x;
+    const int yIndex = voxel * nS + sampleTileIndex * SAMPLE_TILE_LENGTH + sample;
+
     /* SHARED MEMORY BUFFERS */
     extern __shared__ float LUTBuffer[];
 
@@ -111,6 +120,7 @@ __global__ void commitMatrixMultiplication(
         }
     }
     __syncthreads();
+
 }
 
 cudaDeviceProp getCudaDeviceProps(int deviceId){
@@ -128,7 +138,6 @@ cudaDeviceProp getCudaDeviceProps(int deviceId){
 
 void CommitOriginalDataStructure::gpuMatrixMultiplication()
 {
-
     /* CHECK IF SHARED MEMORY PER BLOCK IS ENOUGH TO FIT LUT IN IT (ASSUMING THE MACHINE IS EQUIPPED WITH ONLY ONE GPU)*/
     cudaDeviceProp deviceProps;
     CUDAERRCHECK(cudaGetDeviceProperties(&deviceProps, 0))
@@ -143,6 +152,40 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     cudaEventCreate(&kernelStop);
 
     cudaEventRecord(totalStart);
+
+    /* IC */
+    uint32_t* icfDevice; uint16_t* icoDevice; float* iclDevice;
+
+    CUDAERRCHECK(cudaMalloc(&icfDevice,sizeof(uint32_t)*icf.size()))
+    CUDAERRCHECK(cudaMalloc(&icoDevice,sizeof(uint16_t)*ico.size()))
+    CUDAERRCHECK(cudaMalloc(&iclDevice,sizeof(float)*icl.size()))
+
+    CUDAERRCHECK(cudaMemcpy(icfDevice,icf.data(),sizeof(uint32_t)*icf.size(),cudaMemcpyHostToDevice))
+    CUDAERRCHECK(cudaMemcpy(icoDevice,ico.data(),sizeof(uint16_t)*ico.size(),cudaMemcpyHostToDevice))
+    CUDAERRCHECK(cudaMemcpy(iclDevice,icl.data(),sizeof(float)*icl.size(),cudaMemcpyHostToDevice))
+
+    /* EC */
+    uint16_t* ecoDevice;
+
+    CUDAERRCHECK(cudaMalloc(&ecoDevice,sizeof(uint16_t)*eco.size()))
+
+    CUDAERRCHECK(cudaMemcpy(ecoDevice,eco.data(),sizeof(uint16_t)*eco.size(),cudaMemcpyHostToDevice))
+
+    /* HELPER ARRAYS */
+    int* icIndexesDevice;int* ecIndexesDevice;
+
+    CUDAERRCHECK(cudaMalloc(&icIndexesDevice,sizeof(int)*icIndexes.size()))
+    CUDAERRCHECK(cudaMalloc(&ecIndexesDevice,sizeof(int)*ecIndexes.size()))
+
+    CUDAERRCHECK(cudaMemcpy(icIndexesDevice,icIndexes.data(),sizeof(int)*icIndexes.size(),cudaMemcpyHostToDevice))
+    CUDAERRCHECK(cudaMemcpy(ecIndexesDevice,ecIndexes.data(),sizeof(int)*ecIndexes.size(),cudaMemcpyHostToDevice))
+
+    /* INPUT */
+    float* xDevice;
+    
+    CUDAERRCHECK(cudaMalloc(&xDevice,sizeof(float)*input.size()))
+
+    CUDAERRCHECK(cudaMemcpy(xDevice,input.data(),sizeof(float)*input.size(),cudaMemcpyHostToDevice))
 
     /* LUTS BATCHES ALLOCATION & COPY TO GLOBAL MEMORY */
     LUTBatchDevice* lutBatchesDevice;
@@ -182,10 +225,15 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
 
     cudaEventRecord(kernelStart);
 
-    for(unsigned sampleTile = 0 ; sampleTile < batchedLUTs.size() ; sampleTile++)
+    for(unsigned sampleTileIndex = 0 ; sampleTileIndex < batchedLUTs.size() ; sampleTileIndex++)
     {
         commitMatrixMultiplication<<<dimGrid,dimBlock,_nR*_ndirs*SAMPLE_TILE_LENGTH*sizeof(float)>>>(
-            _nR,_ndirs,lutBatchesDevice[sampleTile],
+            icfDevice,icoDevice,iclDevice,_nR,_nF,
+            ecoDevice,_nT,_nE,
+            _nI,
+            _ndirs,lutBatchesDevice[sampleTileIndex],sampleTileIndex,
+            icIndexesDevice,ecIndexesDevice,
+            xDevice,
             yDevice
         );
     }
@@ -197,6 +245,15 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
     CUDAERRCHECK(cudaMemcpy(obtainedResult.data(),yDevice,sizeof(float)*output.size(),cudaMemcpyDeviceToHost))
 
     /* FREEING MEMORY */
+    CUDAERRCHECK(cudaFree(icfDevice)) 
+    CUDAERRCHECK(cudaFree(icoDevice)) 
+    CUDAERRCHECK(cudaFree(iclDevice)) 
+    CUDAERRCHECK(cudaFree(ecoDevice))
+    CUDAERRCHECK(cudaFree(icIndexesDevice)) 
+    CUDAERRCHECK(cudaFree(ecIndexesDevice))
+    CUDAERRCHECK(cudaFree(xDevice))
+    CUDAERRCHECK(cudaFree(yDevice))
+
     for(int sampleTile = 0 ; sampleTile < batchedLUTs.size() ; sampleTile++)
     {
         CUDAERRCHECK(cudaFree(lutBatchesDevice[sampleTile].wmrSFP))
@@ -204,7 +261,6 @@ void CommitOriginalDataStructure::gpuMatrixMultiplication()
         CUDAERRCHECK(cudaFree(lutBatchesDevice[sampleTile].isoSFP))
     }
     CUDAERRCHECK(cudaFree(lutBatchesDevice))
-    CUDAERRCHECK(cudaFree(yDevice))
 
     cudaEventRecord(totalStop);
 
